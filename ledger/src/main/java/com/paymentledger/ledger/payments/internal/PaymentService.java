@@ -2,6 +2,7 @@ package com.paymentledger.ledger.payments.internal;
 
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.payments.Payment;
+import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.Posting;
@@ -30,7 +31,8 @@ class PaymentService {
   }
 
   /**
-   * Inserts the Payment, posts its Transaction and completes it, all in one database transaction.
+   * Inserts the Payment, then either posts its Transaction and completes it or, when the payer's
+   * funds don't cover it, Rejects it with Insufficient Funds. All in one database transaction.
    */
   @Transactional
   Payment makeInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
@@ -48,6 +50,11 @@ class PaymentService {
       throw PaymentProblems.notFound("No Account " + payee.value() + " exists to pay");
     }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
+    Money balance = posting.balanceOf(debtor).orElseThrow();
+    if (amount.isGreaterThan(balance)) {
+      payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
+      return payments.find(id).orElseThrow();
+    }
     posting.post(
         NewTransaction.forPayment(
             id,

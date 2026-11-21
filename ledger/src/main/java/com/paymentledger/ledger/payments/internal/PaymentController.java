@@ -1,6 +1,7 @@
 package com.paymentledger.ledger.payments.internal;
 
 import com.paymentledger.ledger.payments.Payment;
+import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
@@ -8,6 +9,7 @@ import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,6 +67,7 @@ class PaymentController {
       UUID debtorAccountId,
       PayeeBody payee,
       long amountPence,
+      @Nullable String rejectionReason,
       List<UUID> transactionIds) {
 
     static PaymentResponse of(Payment payment, List<TransactionId> transactions) {
@@ -75,6 +78,7 @@ class PaymentController {
           payment.debtorAccount().value(),
           new PayeeBody(payment.payeeAccount().value()),
           payment.amount().pence(),
+          payment.rejection().map(RejectionReason::name).orElse(null),
           transactions.stream().map(TransactionId::value).toList());
     }
   }

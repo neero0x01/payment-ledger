@@ -3,6 +3,7 @@ package com.paymentledger.ledger.payments.internal;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.PaymentType;
+import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
@@ -49,10 +50,23 @@ class PaymentRepository {
         .update();
   }
 
+  void markRejected(PaymentId id, RejectionReason reason) {
+    jdbc.sql(
+            """
+            update payment
+            set status = 'REJECTED', rejection_reason = :reason
+            where id = :id
+            """)
+        .param("id", id.value())
+        .param("reason", reason.name())
+        .update();
+  }
+
   Optional<Payment> find(PaymentId id) {
     return jdbc.sql(
             """
-            select id, type, status, debtor_account_id, payee_account_id, amount_pence
+            select id, type, status, debtor_account_id, payee_account_id, amount_pence,
+                   rejection_reason
             from payment
             where id = :id
             """)
@@ -62,12 +76,14 @@ class PaymentRepository {
   }
 
   private static Payment toPayment(ResultSet rs, int rowNum) throws SQLException {
+    String rejectionReason = rs.getString("rejection_reason");
     return new Payment(
         new PaymentId(rs.getObject("id", UUID.class)),
         PaymentType.valueOf(rs.getString("type")),
         PaymentStatus.valueOf(rs.getString("status")),
         new AccountId(rs.getObject("debtor_account_id", UUID.class)),
         new AccountId(rs.getObject("payee_account_id", UUID.class)),
-        Money.ofPence(rs.getLong("amount_pence")));
+        Money.ofPence(rs.getLong("amount_pence")),
+        rejectionReason == null ? null : RejectionReason.valueOf(rejectionReason));
   }
 }
