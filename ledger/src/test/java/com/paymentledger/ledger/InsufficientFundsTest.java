@@ -1,7 +1,6 @@
 package com.paymentledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assumptions.assumeThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
@@ -112,27 +111,37 @@ class InsufficientFundsTest {
     assertThat(stored.transactionIds()).isEmpty();
   }
 
+  /**
+   * No one may make a Payment from an Internal Account (spec §8), so a Correction shows it: an
+   * Adjustment that debits a Customer Account credits the debit-normal Corrections Account.
+   */
   @Test
-  void internal_account_has_no_funds_check_and_pays_beyond_its_balance() {
-    AccountId funding = ledger.funding();
+  void internal_account_has_no_funds_check_and_goes_below_zero() {
+    AccountId corrections = ledger.corrections();
     AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
-    long beyondFundingBalance = balancePenceOf(funding) + 1_00;
-    assumeThat(beyondFundingBalance).isLessThanOrEqualTo(1_000_000_00);
+    long beyondCorrectionsBalance = Math.max(balancePenceOf(corrections), 0) + 1_00;
 
-    PaymentView payment = makePaymentAs(operator, funding, b, beyondFundingBalance);
+    operator
+        .post()
+        .uri("/v1/corrections")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"kind": "ADJUSTMENT", "reason": "OTHER", "note": "Operator note",
+             "accountId": "%s", "amountPence": %d, "direction": "DEBIT"}
+            """
+                .formatted(b.value(), beyondCorrectionsBalance))
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.CREATED);
 
-    assertThat(payment.status()).isEqualTo("COMPLETED");
-    assertThat(balancePenceOf(b)).isEqualTo(beyondFundingBalance);
+    assertThat(balancePenceOf(corrections)).isNegative();
   }
 
   private PaymentView makePayment(AccountId from, AccountId to, long amountPence) {
-    return makePaymentAs(sessions.customerOwning(from), from, to, amountPence);
-  }
-
-  private PaymentView makePaymentAs(
-      RestTestClient payer, AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
-        payer
+        sessions
+            .customerOwning(from)
             .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)

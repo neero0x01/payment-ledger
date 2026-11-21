@@ -67,6 +67,24 @@ class RolesTest {
     expectBalance(operator, a, 100_00);
   }
 
+  @Test
+  void operator_making_a_payment_is_forbidden_and_stores_nothing() {
+    expectForbidden(
+        operator
+            .post()
+            .uri("/v1/payments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(
+                """
+                {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": 1000}
+                """
+                    .formatted(a.value(), b.value()))
+            .exchange());
+
+    expectBalance(operator, a, 100_00);
+    expectBalance(operator, b, 0);
+  }
+
   private static void expectForbidden(RestTestClient.ResponseSpec response) {
     response
         .expectStatus()
