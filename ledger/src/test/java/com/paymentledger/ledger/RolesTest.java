@@ -2,6 +2,8 @@ package com.paymentledger.ledger;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,6 +86,82 @@ class RolesTest {
     expectBalance(operator, a, 100_00);
     expectBalance(operator, b, 0);
   }
+
+  @Test
+  void customer_reading_another_customers_balance_is_forbidden() {
+    RestTestClient ownerOfB = sessions.customerOwning(b);
+
+    expectForbidden(ownerOfB.get().uri("/v1/accounts/{id}/balance", a.value()).exchange());
+    expectForbidden(
+        ownerOfB.get().uri("/v1/accounts/{id}/balance", ledger.funding().value()).exchange());
+    expectBalance(ownerOfB, b, 0);
+  }
+
+  @Test
+  void customer_reading_another_customers_payment_is_forbidden() {
+    RestTestClient ownerOfA = sessions.customerOwning(a);
+    String payment = payAndReturnLocation(ownerOfA, a, b, 30_00);
+
+    expectForbidden(sessions.customerOwning(b).get().uri(payment).exchange());
+    ownerOfA.get().uri(payment).exchange().expectStatus().isOk();
+  }
+
+  @Test
+  void operator_can_read_any_payment() {
+    String payment = payAndReturnLocation(sessions.customerOwning(a), a, b, 30_00);
+
+    operator
+        .get()
+        .uri(payment)
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody()
+        .jsonPath("$.status")
+        .isEqualTo("COMPLETED");
+  }
+
+  @Test
+  void customer_reading_a_transaction_is_forbidden_even_their_own() {
+    RestTestClient ownerOfA = sessions.customerOwning(a);
+    String transaction =
+        ownerOfA
+            .get()
+            .uri(payAndReturnLocation(ownerOfA, a, b, 30_00))
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody(PaymentView.class)
+            .returnResult()
+            .getResponseBody()
+            .transactionIds()
+            .getFirst()
+            .toString();
+
+    expectForbidden(ownerOfA.get().uri("/v1/transactions/{id}", transaction).exchange());
+    operator.get().uri("/v1/transactions/{id}", transaction).exchange().expectStatus().isOk();
+  }
+
+  private static String payAndReturnLocation(
+      RestTestClient payer, AccountId from, AccountId to, long amountPence) {
+    return payer
+        .post()
+        .uri("/v1/payments")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": %d}
+            """
+                .formatted(from.value(), to.value(), amountPence))
+        .exchange()
+        .expectStatus()
+        .isCreated()
+        .returnResult()
+        .getResponseHeaders()
+        .getFirst("Location");
+  }
+
+  record PaymentView(List<UUID> transactionIds) {}
 
   private static void expectForbidden(RestTestClient.ResponseSpec response) {
     response
