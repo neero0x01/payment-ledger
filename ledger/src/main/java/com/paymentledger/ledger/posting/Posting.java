@@ -15,6 +15,9 @@ public interface Posting {
 
   Optional<PostedTransaction> find(TransactionId id);
 
+  /** Whether a Reversal or Reversing Correction of the Transaction has been posted. */
+  boolean isReversed(TransactionId transaction);
+
   /** The Account's Balance on its Normal Side, or empty for an unknown Account. */
   Optional<Money> balanceOf(AccountId account);
 

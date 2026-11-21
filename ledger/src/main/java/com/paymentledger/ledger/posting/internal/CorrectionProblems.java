@@ -14,6 +14,10 @@ final class CorrectionProblems {
     return problem(HttpStatus.NOT_FOUND, ProblemType.NOT_FOUND, detail);
   }
 
+  static ErrorResponseException alreadyReversed(String detail) {
+    return problem(HttpStatus.CONFLICT, ProblemType.ALREADY_REVERSED, detail);
+  }
+
   private static ErrorResponseException problem(
       HttpStatus status, ProblemType type, String detail) {
     ProblemDetail body = ProblemDetail.forStatusAndDetail(status, detail);
