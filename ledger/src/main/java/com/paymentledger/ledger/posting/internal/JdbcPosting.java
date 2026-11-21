@@ -93,6 +93,21 @@ class JdbcPosting implements Posting {
 
   @Override
   @Transactional(readOnly = true)
+  public Optional<Money> balanceOf(AccountId account) {
+    if (accounts.find(account).isEmpty()) {
+      return Optional.empty();
+    }
+    long pence =
+        jdbc.sql("select balance_pence from account_balance where account_id = :accountId")
+            .param("accountId", account.value())
+            .query(Long.class)
+            .optional()
+            .orElse(0L);
+    return Optional.of(Money.ofPence(pence));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public List<TransactionId> transactionsOf(PaymentId payment) {
     return jdbc
         .sql(

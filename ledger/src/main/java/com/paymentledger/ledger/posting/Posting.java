@@ -1,5 +1,7 @@
 package com.paymentledger.ledger.posting;
 
+import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
@@ -12,6 +14,9 @@ public interface Posting {
   TransactionId post(NewTransaction transaction);
 
   Optional<PostedTransaction> find(TransactionId id);
+
+  /** The Account's Balance on its Normal Side, or empty for an unknown Account. */
+  Optional<Money> balanceOf(AccountId account);
 
   /** The Transactions a Payment led to, oldest first. */
   List<TransactionId> transactionsOf(PaymentId payment);
