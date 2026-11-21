@@ -15,6 +15,11 @@ public record Money(long pence) {
     return pence > other.pence;
   }
 
+  /** The sum of two amounts; refuses a sum that would overflow. */
+  public Money plus(Money other) {
+    return new Money(Math.addExact(pence, other.pence));
+  }
+
   public Money negate() {
     return new Money(Math.negateExact(pence));
   }
