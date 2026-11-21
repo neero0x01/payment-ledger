@@ -37,6 +37,10 @@ class PaymentService {
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
       throw PaymentProblems.validationFailed("The amount must be at most £1,000,000.00");
     }
+    if (debtor.equals(payee)) {
+      throw PaymentProblems.validationFailed(
+          "The Payee must be a different Account from the payer");
+    }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
     posting.post(
         NewTransaction.forPayment(
