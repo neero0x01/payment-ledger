@@ -8,6 +8,7 @@ import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Problem;
@@ -33,11 +34,13 @@ class PaymentService {
   }
 
   /**
-   * Inserts the Payment, then either posts its Transaction and completes it or, when the payer's
-   * funds don't cover it, Rejects it with Insufficient Funds. All in one database transaction.
+   * Checks the Customer owns the payer's Account, inserts the Payment, then either posts its
+   * Transaction and completes it or, when the payer's funds don't cover it, Rejects it with
+   * Insufficient Funds. All in one database transaction.
    */
   @Transactional
-  Payment makeInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
+  Payment makeInternalTransfer(
+      CustomerId customer, AccountId debtor, AccountId payee, Money amount) {
     Problem.requirePositive(amount);
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
       throw Problem.validationFailed("The amount must be at most £1,000,000.00");
@@ -50,6 +53,9 @@ class PaymentService {
             .find(debtor)
             .orElseThrow(
                 () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
+    if (!payer.isOwnedBy(customer)) {
+      throw Problem.forbidden("Account " + debtor.value() + " is not yours to pay from");
+    }
     if (accounts.find(payee).isEmpty()) {
       throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
