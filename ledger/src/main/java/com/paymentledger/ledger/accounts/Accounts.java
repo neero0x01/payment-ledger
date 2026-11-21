@@ -12,6 +12,9 @@ public interface Accounts {
   /** Opens a credit-normal Customer Account with a zero Balance. */
   AccountId openCustomerAccount(CustomerId owner, String name);
 
+  /** Opens a credit-normal Customer Account with a zero Balance under an id the caller chose. */
+  void openCustomerAccount(AccountId id, CustomerId owner, String name);
+
   /** The Funding Account, which money in Customer Accounts comes from in v1. */
   AccountId funding();
 

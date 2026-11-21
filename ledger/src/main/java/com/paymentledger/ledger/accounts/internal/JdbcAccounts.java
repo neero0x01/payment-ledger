@@ -46,6 +46,19 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public void openCustomerAccount(AccountId id, CustomerId owner, String name) {
+    jdbc.sql(
+            """
+            insert into account (id, kind, customer_id, name, normal_side)
+            values (:id, 'CUSTOMER', :customerId, :name, 'CREDIT')
+            """)
+        .param("id", id.value())
+        .param("customerId", owner.value())
+        .param("name", name)
+        .update();
+  }
+
+  @Override
   public AccountId funding() {
     UUID id =
         jdbc.sql("select id from account where kind = 'INTERNAL' and name = 'Funding'")
