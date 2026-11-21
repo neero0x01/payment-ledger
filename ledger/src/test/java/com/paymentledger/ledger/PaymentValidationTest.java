@@ -59,6 +59,16 @@ class PaymentValidationTest {
     assertBalancesUnchanged();
   }
 
+  @Test
+  void rejects_the_same_account_as_payer_and_payee_as_validation_failed_and_posts_nothing() {
+    expectProblem(
+        transfer(a.value(), a.value(), 10_00),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertBalancesUnchanged();
+  }
+
   private void expectProblem(String body, HttpStatus status, String type) {
     http.post()
         .uri("/v1/payments")
