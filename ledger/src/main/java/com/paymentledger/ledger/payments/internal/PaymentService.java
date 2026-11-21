@@ -8,8 +8,8 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Side;
-import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
+import java.util.Optional;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -38,7 +38,8 @@ class PaymentService {
     return payments.find(id).orElseThrow();
   }
 
-  List<TransactionId> transactionsOf(PaymentId payment) {
-    return posting.transactionsOf(payment);
+  @Transactional(readOnly = true)
+  Optional<Payment> find(PaymentId id) {
+    return payments.find(id);
   }
 }
