@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 /**
@@ -43,6 +44,38 @@ class RolesTest {
         .exchange()
         .expectStatus()
         .isOk();
+  }
+
+  /** Scenario 7 [M3]. */
+  @Test
+  void customer_posting_a_correction_is_forbidden_and_posts_nothing() {
+    RestTestClient customer = sessions.customerOwning(a);
+
+    expectForbidden(
+        customer
+            .post()
+            .uri("/v1/corrections")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(
+                """
+                {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Paying myself",
+                 "accountId": "%s", "amountPence": 500, "direction": "CREDIT"}
+                """
+                    .formatted(a.value()))
+            .exchange());
+
+    expectBalance(operator, a, 100_00);
+  }
+
+  private static void expectForbidden(RestTestClient.ResponseSpec response) {
+    response
+        .expectStatus()
+        .isForbidden()
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/forbidden");
   }
 
   private static void expectBalance(RestTestClient client, AccountId account, long pence) {
