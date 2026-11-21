@@ -37,6 +37,8 @@ class WebSecurity {
             requests
                 .dispatcherTypeMatchers(DispatcherType.ERROR)
                 .permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/payments")
+                .hasRole(Role.CUSTOMER.name())
                 .requestMatchers(HttpMethod.POST, "/v1/corrections")
                 .hasRole(Role.OPERATOR.name())
                 .anyRequest()
