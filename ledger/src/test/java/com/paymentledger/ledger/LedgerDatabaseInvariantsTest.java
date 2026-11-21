@@ -8,6 +8,8 @@ import com.paymentledger.ledger.shared.Money;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
@@ -79,6 +81,23 @@ class LedgerDatabaseInvariantsTest {
     assertThatThrownBy(
             () -> transaction.executeWithoutResult(status -> insertEntry(id, funding, "DEBIT", 1)))
         .isInstanceOf(DataAccessException.class);
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        "update entry set amount_pence = amount_pence + 1",
+        "delete from entry",
+        "truncate entry",
+        "update ledger_transaction set booked_at = clock_timestamp()",
+        "delete from ledger_transaction",
+        "truncate ledger_transaction cascade"
+      })
+  void the_application_can_never_change_entries_or_transactions(String statement) {
+    assertThatThrownBy(
+            () -> transaction.executeWithoutResult(status -> jdbc.sql(statement).update()))
+        .isInstanceOf(DataAccessException.class)
+        .hasMessageContaining("permission denied");
   }
 
   private UUID insertFundingTransaction() {
