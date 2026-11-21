@@ -69,6 +69,14 @@ class PaymentValidationTest {
     assertBalancesUnchanged();
   }
 
+  @Test
+  void rejects_an_unknown_payee_account_as_not_found_and_posts_nothing() {
+    expectProblem(
+        transfer(a.value(), UUID.randomUUID(), 10_00), HttpStatus.NOT_FOUND, "/problems/not-found");
+
+    assertBalancesUnchanged();
+  }
+
   private void expectProblem(String body, HttpStatus status, String type) {
     http.post()
         .uri("/v1/payments")
