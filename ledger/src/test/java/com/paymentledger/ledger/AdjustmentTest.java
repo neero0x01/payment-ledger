@@ -21,11 +21,13 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 7: Immutable Corrections, the Adjustment [M2]. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class})
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
 class AdjustmentTest {
 
-  @Autowired RestTestClient http;
   @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
+
+  RestTestClient operator;
 
   AccountId customer;
   AccountId corrections;
@@ -34,6 +36,7 @@ class AdjustmentTest {
   void givenACustomerAccountWith20Pounds() {
     customer = ledger.customerAccountWithBalance(Money.ofPence(20_00));
     corrections = ledger.corrections();
+    operator = sessions.operator();
   }
 
   @Test
@@ -155,7 +158,8 @@ class AdjustmentTest {
 
   @Test
   void adjustment_of_an_unknown_account_is_refused_as_not_found() {
-    http.post()
+    operator
+        .post()
         .uri("/v1/corrections")
         .contentType(MediaType.APPLICATION_JSON)
         .body(
@@ -211,7 +215,9 @@ class AdjustmentTest {
 
   private PaymentView makePayment(AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
-        http.post()
+        sessions
+            .customerOwning(from)
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(
@@ -230,7 +236,8 @@ class AdjustmentTest {
   }
 
   private void expectValidationFailed(String body) {
-    http.post()
+    operator
+        .post()
         .uri("/v1/corrections")
         .contentType(MediaType.APPLICATION_JSON)
         .body(body)
@@ -250,7 +257,8 @@ class AdjustmentTest {
 
   private TransactionView postAdjustment(String body) {
     TransactionView adjustment =
-        http.post()
+        operator
+            .post()
             .uri("/v1/corrections")
             .contentType(MediaType.APPLICATION_JSON)
             .body(body)
@@ -268,7 +276,8 @@ class AdjustmentTest {
 
   private TransactionView transaction(UUID id) {
     TransactionView transaction =
-        http.get()
+        operator
+            .get()
             .uri("/v1/transactions/{id}", id)
             .exchange()
             .expectStatus()
@@ -282,7 +291,8 @@ class AdjustmentTest {
 
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
-        http.get()
+        operator
+            .get()
             .uri("/v1/accounts/{id}/balance", account.value())
             .exchange()
             .expectStatus()

@@ -25,11 +25,13 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 7: Immutable Corrections, the Reversing Correction [M2]. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class})
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
 class ReversingCorrectionTest {
 
-  @Autowired RestTestClient http;
   @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
+
+  RestTestClient operator;
 
   AccountId a;
   AccountId b;
@@ -39,6 +41,7 @@ class ReversingCorrectionTest {
   void givenAPaidB30PoundsByMistake() {
     a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
     b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    operator = sessions.operator();
     mistake = payAndReturnTransaction(a, b, 30_00);
   }
 
@@ -175,7 +178,8 @@ class ReversingCorrectionTest {
   }
 
   private void expectProblem(String body, HttpStatus status, String type) {
-    http.post()
+    operator
+        .post()
         .uri("/v1/corrections")
         .contentType(MediaType.APPLICATION_JSON)
         .body(body)
@@ -195,7 +199,8 @@ class ReversingCorrectionTest {
 
   private TransactionView postReversingCorrection(UUID transactionId) {
     TransactionView correction =
-        http.post()
+        operator
+            .post()
             .uri("/v1/corrections")
             .contentType(MediaType.APPLICATION_JSON)
             .body(reversing(transactionId))
@@ -221,7 +226,9 @@ class ReversingCorrectionTest {
 
   private UUID payAndReturnTransaction(AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
-        http.post()
+        sessions
+            .customerOwning(from)
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(
@@ -241,7 +248,8 @@ class ReversingCorrectionTest {
 
   private TransactionView transaction(UUID id) {
     TransactionView transaction =
-        http.get()
+        operator
+            .get()
             .uri("/v1/transactions/{id}", id)
             .exchange()
             .expectStatus()
@@ -255,7 +263,8 @@ class ReversingCorrectionTest {
 
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
-        http.get()
+        operator
+            .get()
             .uri("/v1/accounts/{id}/balance", account.value())
             .exchange()
             .expectStatus()

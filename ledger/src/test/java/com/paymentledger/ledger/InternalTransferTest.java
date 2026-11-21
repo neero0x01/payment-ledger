@@ -19,24 +19,29 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 1: Internal Transfer [M1]. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class})
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
 class InternalTransferTest {
 
-  @Autowired RestTestClient http;
   @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
 
   AccountId a;
   AccountId b;
+  RestTestClient customer;
+  RestTestClient operator;
 
   @BeforeEach
   void givenAHas100PoundsAndBHasNothing() {
     a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
     b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    customer = sessions.customerOwning(a);
+    operator = sessions.operator();
   }
 
   @Test
   void internal_transfer_returns_201_with_the_payment_completed() {
-    http.post()
+    customer
+        .post()
         .uri("/v1/payments")
         .contentType(MediaType.APPLICATION_JSON)
         .body(transfer(a, b, 30_00))
@@ -62,7 +67,8 @@ class InternalTransferTest {
 
     assertThat(payment.transactionIds()).hasSize(1);
     TransactionView transaction =
-        http.get()
+        operator
+            .get()
             .uri("/v1/transactions/{id}", payment.transactionIds().getFirst())
             .exchange()
             .expectStatus()
@@ -82,7 +88,8 @@ class InternalTransferTest {
   @Test
   void completed_internal_transfer_can_be_read_back_at_its_location() {
     String location =
-        http.post()
+        customer
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(transfer(a, b, 30_00))
@@ -94,7 +101,8 @@ class InternalTransferTest {
             .getFirst("Location");
 
     PaymentView payment =
-        http.get()
+        customer
+            .get()
             .uri(location)
             .exchange()
             .expectStatus()
@@ -117,7 +125,8 @@ class InternalTransferTest {
   }
 
   private BalanceView balanceOf(AccountId account) {
-    return http.get()
+    return operator
+        .get()
         .uri("/v1/accounts/{id}/balance", account.value())
         .exchange()
         .expectStatus()
@@ -131,7 +140,8 @@ class InternalTransferTest {
 
   private PaymentView makeTransfer(AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
-        http.post()
+        customer
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(transfer(from, to, amountPence))

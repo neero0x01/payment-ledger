@@ -7,6 +7,7 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -19,11 +20,18 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 3: Insufficient funds and overdraft [M2]. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class})
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
 class InsufficientFundsTest {
 
-  @Autowired RestTestClient http;
   @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
+
+  RestTestClient operator;
+
+  @BeforeEach
+  void givenAnOperator() {
+    operator = sessions.operator();
+  }
 
   @Test
   void completes_a_payment_within_the_overdraft_limit_taking_the_payer_below_zero() {
@@ -71,9 +79,11 @@ class InsufficientFundsTest {
   void rejected_payment_is_stored_and_can_be_read_back_at_its_location() {
     AccountId a = ledger.customerAccountWithBalance(Money.ofPence(50_00));
     AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
 
     String location =
-        http.post()
+        customer
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(payment(a, b, 50_01))
@@ -85,7 +95,8 @@ class InsufficientFundsTest {
             .getFirst("Location");
 
     PaymentView stored =
-        http.get()
+        customer
+            .get()
             .uri(location)
             .exchange()
             .expectStatus()
@@ -108,15 +119,21 @@ class InsufficientFundsTest {
     long beyondFundingBalance = balancePenceOf(funding) + 1_00;
     assumeThat(beyondFundingBalance).isLessThanOrEqualTo(1_000_000_00);
 
-    PaymentView payment = makePayment(funding, b, beyondFundingBalance);
+    PaymentView payment = makePaymentAs(operator, funding, b, beyondFundingBalance);
 
     assertThat(payment.status()).isEqualTo("COMPLETED");
     assertThat(balancePenceOf(b)).isEqualTo(beyondFundingBalance);
   }
 
   private PaymentView makePayment(AccountId from, AccountId to, long amountPence) {
+    return makePaymentAs(sessions.customerOwning(from), from, to, amountPence);
+  }
+
+  private PaymentView makePaymentAs(
+      RestTestClient payer, AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
-        http.post()
+        payer
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(payment(from, to, amountPence))
@@ -134,7 +151,8 @@ class InsufficientFundsTest {
 
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
-        http.get()
+        operator
+            .get()
             .uri("/v1/accounts/{id}/balance", account.value())
             .exchange()
             .expectStatus()
