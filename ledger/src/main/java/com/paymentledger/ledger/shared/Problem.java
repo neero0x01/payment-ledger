@@ -29,6 +29,16 @@ public final class Problem extends RuntimeException {
     return new Problem(ProblemType.ALREADY_REVERSED, detail);
   }
 
+  /** The request has no session, or a login's credentials are wrong. */
+  public static Problem unauthenticated(String detail) {
+    return new Problem(ProblemType.UNAUTHENTICATED, detail);
+  }
+
+  /** The Principal may not do this, or the request lacks its CSRF token. */
+  public static Problem forbidden(String detail) {
+    return new Problem(ProblemType.FORBIDDEN, detail);
+  }
+
   /** Refuses an amount of zero or less as validation-failed. */
   public static Money requirePositive(Money amount) {
     if (!amount.isPositive()) {

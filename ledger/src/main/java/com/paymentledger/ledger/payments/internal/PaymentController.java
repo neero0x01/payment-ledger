@@ -4,14 +4,18 @@ import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.Principal;
+import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,9 +37,14 @@ class PaymentController {
 
   @PostMapping(path = "/{version}/payments", version = "1")
   ResponseEntity<PaymentResponse> makePayment(
-      @RequestBody PaymentRequest request, UriComponentsBuilder uri) {
+      @AuthenticationPrincipal Principal principal,
+      @RequestBody PaymentRequest request,
+      UriComponentsBuilder uri) {
+    CustomerId customer =
+        principal.customerId().orElseThrow(() -> Problem.forbidden("Only Customers make Payments"));
     Payment payment =
         payments.makeInternalTransfer(
+            customer,
             new AccountId(request.debtorAccountId()),
             new AccountId(request.payee().accountId()),
             Money.ofPence(request.amountPence()));
@@ -45,9 +54,9 @@ class PaymentController {
   }
 
   @GetMapping(path = "/{version}/payments/{id}", version = "1")
-  PaymentResponse payment(@PathVariable UUID id) {
+  PaymentResponse payment(@AuthenticationPrincipal Principal principal, @PathVariable UUID id) {
     return payments
-        .find(new PaymentId(id))
+        .find(new PaymentId(id), principal)
         .map(this::toResponse)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
   }

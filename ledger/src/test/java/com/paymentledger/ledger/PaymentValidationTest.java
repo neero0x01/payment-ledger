@@ -18,19 +18,23 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 1: invalid Payment requests are refused as problems and store nothing [M1]. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class})
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
 class PaymentValidationTest {
 
-  @Autowired RestTestClient http;
   @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
 
   AccountId a;
   AccountId b;
+  RestTestClient customer;
+  RestTestClient operator;
 
   @BeforeEach
   void givenAHas100PoundsAndBHasNothing() {
     a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
     b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    customer = sessions.customerOwning(a);
+    operator = sessions.operator();
   }
 
   @Test
@@ -86,7 +90,8 @@ class PaymentValidationTest {
   }
 
   private void expectProblem(String body, HttpStatus status, String type) {
-    http.post()
+    customer
+        .post()
         .uri("/v1/payments")
         .contentType(MediaType.APPLICATION_JSON)
         .body(body)
@@ -114,7 +119,8 @@ class PaymentValidationTest {
 
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
-        http.get()
+        operator
+            .get()
             .uri("/v1/accounts/{id}/balance", account.value())
             .exchange()
             .expectStatus()

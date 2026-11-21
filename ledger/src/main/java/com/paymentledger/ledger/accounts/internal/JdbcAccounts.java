@@ -82,14 +82,21 @@ class JdbcAccounts implements Accounts {
   @Override
   public Optional<Account> find(AccountId id) {
     return jdbc.sql(
-            "select id, kind, normal_side, overdraft_limit_pence from account where id = :id")
+            """
+            select id, kind, normal_side, overdraft_limit_pence, customer_id
+            from account
+            where id = :id
+            """)
         .param("id", id.value())
-        .query((rs, rowNum) ->
-            new Account(
-                new AccountId(rs.getObject("id", UUID.class)),
-                AccountKind.valueOf(rs.getString("kind")),
-                Side.valueOf(rs.getString("normal_side")),
-                Money.ofPence(rs.getLong("overdraft_limit_pence"))))
+        .query((rs, rowNum) -> {
+          UUID owner = rs.getObject("customer_id", UUID.class);
+          return new Account(
+              new AccountId(rs.getObject("id", UUID.class)),
+              AccountKind.valueOf(rs.getString("kind")),
+              Side.valueOf(rs.getString("normal_side")),
+              Money.ofPence(rs.getLong("overdraft_limit_pence")),
+              owner == null ? null : new CustomerId(owner));
+        })
         .optional();
   }
 }

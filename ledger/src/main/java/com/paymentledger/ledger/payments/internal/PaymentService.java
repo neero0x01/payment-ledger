@@ -8,8 +8,10 @@ import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import java.util.List;
@@ -33,11 +35,13 @@ class PaymentService {
   }
 
   /**
-   * Inserts the Payment, then either posts its Transaction and completes it or, when the payer's
-   * funds don't cover it, Rejects it with Insufficient Funds. All in one database transaction.
+   * Checks the Customer owns the payer's Account, inserts the Payment, then either posts its
+   * Transaction and completes it or, when the payer's funds don't cover it, Rejects it with
+   * Insufficient Funds. All in one database transaction.
    */
   @Transactional
-  Payment makeInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
+  Payment makeInternalTransfer(
+      CustomerId customer, AccountId debtor, AccountId payee, Money amount) {
     Problem.requirePositive(amount);
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
       throw Problem.validationFailed("The amount must be at most £1,000,000.00");
@@ -50,6 +54,9 @@ class PaymentService {
             .find(debtor)
             .orElseThrow(
                 () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
+    if (!payer.isOwnedBy(customer)) {
+      throw Problem.forbidden("Account " + debtor.value() + " is not yours to pay from");
+    }
     if (accounts.find(payee).isEmpty()) {
       throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
@@ -67,8 +74,17 @@ class PaymentService {
     return payments.find(id).orElseThrow();
   }
 
+  /** The Payment, if the Principal may see it: an Operator, or the owner of the payer's Account. */
   @Transactional(readOnly = true)
-  Optional<Payment> find(PaymentId id) {
-    return payments.find(id);
+  Optional<Payment> find(PaymentId id, Principal principal) {
+    Optional<Payment> payment = payments.find(id);
+    payment.ifPresent(found -> {
+      boolean visible =
+          accounts.find(found.debtorAccount()).map(a -> a.isVisibleTo(principal)).orElse(false);
+      if (!visible) {
+        throw Problem.forbidden("Payment " + id.value() + " is not yours to see");
+      }
+    });
+    return payment;
   }
 }

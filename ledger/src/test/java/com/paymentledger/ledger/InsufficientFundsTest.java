@@ -1,12 +1,12 @@
 package com.paymentledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assumptions.assumeThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import java.util.List;
 import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
@@ -19,11 +19,18 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 3: Insufficient funds and overdraft [M2]. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class})
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
 class InsufficientFundsTest {
 
-  @Autowired RestTestClient http;
   @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
+
+  RestTestClient operator;
+
+  @BeforeEach
+  void givenAnOperator() {
+    operator = sessions.operator();
+  }
 
   @Test
   void completes_a_payment_within_the_overdraft_limit_taking_the_payer_below_zero() {
@@ -71,9 +78,11 @@ class InsufficientFundsTest {
   void rejected_payment_is_stored_and_can_be_read_back_at_its_location() {
     AccountId a = ledger.customerAccountWithBalance(Money.ofPence(50_00));
     AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
 
     String location =
-        http.post()
+        customer
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(payment(a, b, 50_01))
@@ -85,7 +94,8 @@ class InsufficientFundsTest {
             .getFirst("Location");
 
     PaymentView stored =
-        http.get()
+        customer
+            .get()
             .uri(location)
             .exchange()
             .expectStatus()
@@ -101,22 +111,38 @@ class InsufficientFundsTest {
     assertThat(stored.transactionIds()).isEmpty();
   }
 
+  /**
+   * No one may make a Payment from an Internal Account (spec §8), so a Correction shows it: an
+   * Adjustment that debits a Customer Account credits the debit-normal Corrections Account.
+   */
   @Test
-  void internal_account_has_no_funds_check_and_pays_beyond_its_balance() {
-    AccountId funding = ledger.funding();
+  void internal_account_has_no_funds_check_and_goes_below_zero() {
+    AccountId corrections = ledger.corrections();
     AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
-    long beyondFundingBalance = balancePenceOf(funding) + 1_00;
-    assumeThat(beyondFundingBalance).isLessThanOrEqualTo(1_000_000_00);
+    long beyondCorrectionsBalance = Math.max(balancePenceOf(corrections), 0) + 1_00;
 
-    PaymentView payment = makePayment(funding, b, beyondFundingBalance);
+    operator
+        .post()
+        .uri("/v1/corrections")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"kind": "ADJUSTMENT", "reason": "OTHER", "note": "Operator note",
+             "accountId": "%s", "amountPence": %d, "direction": "DEBIT"}
+            """
+                .formatted(b.value(), beyondCorrectionsBalance))
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.CREATED);
 
-    assertThat(payment.status()).isEqualTo("COMPLETED");
-    assertThat(balancePenceOf(b)).isEqualTo(beyondFundingBalance);
+    assertThat(balancePenceOf(corrections)).isNegative();
   }
 
   private PaymentView makePayment(AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
-        http.post()
+        sessions
+            .customerOwning(from)
+            .post()
             .uri("/v1/payments")
             .contentType(MediaType.APPLICATION_JSON)
             .body(payment(from, to, amountPence))
@@ -134,7 +160,8 @@ class InsufficientFundsTest {
 
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
-        http.get()
+        operator
+            .get()
             .uri("/v1/accounts/{id}/balance", account.value())
             .exchange()
             .expectStatus()

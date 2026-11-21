@@ -13,7 +13,9 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -29,6 +31,7 @@ public class LedgerFixture {
   private final Posting posting;
   private final JdbcClient jdbc;
   private final TransactionTemplate transaction;
+  private final Map<AccountId, CustomerId> owners = new ConcurrentHashMap<>();
 
   LedgerFixture(
       Accounts accounts, Posting posting, JdbcClient jdbc, TransactionTemplate transaction) {
@@ -60,6 +63,7 @@ public class LedgerFixture {
   public AccountId customerAccountWithBalance(Money balance, Money overdraftLimit) {
     CustomerId customer = accounts.registerCustomer("Test Customer");
     AccountId account = accounts.openCustomerAccount(customer, "Main", overdraftLimit);
+    owners.put(account, customer);
     if (balance.isPositive()) {
       posting.post(
           NewTransaction.funding(
@@ -68,6 +72,15 @@ public class LedgerFixture {
                   new Entry(account, Side.CREDIT, balance))));
     }
     return account;
+  }
+
+  /** The Customer who owns a Customer Account this fixture opened. */
+  public CustomerId ownerOf(AccountId account) {
+    CustomerId owner = owners.get(account);
+    if (owner == null) {
+      throw new IllegalArgumentException("This fixture did not open Account " + account.value());
+    }
+    return owner;
   }
 
   /**
