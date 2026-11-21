@@ -26,6 +26,11 @@ public class LedgerFixture {
     this.posting = posting;
   }
 
+  /** The debit-normal Funding Account. */
+  public AccountId funding() {
+    return accounts.funding();
+  }
+
   /** Opens a Customer Account for a new Customer, funded from Funding by a real Transaction. */
   public AccountId customerAccountWithBalance(Money balance) {
     CustomerId customer = accounts.registerCustomer("Test Customer");
