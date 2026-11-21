@@ -1,6 +1,7 @@
 package com.paymentledger.ledger.shared.internal;
 
 import com.paymentledger.ledger.shared.Problem;
+import com.paymentledger.ledger.shared.Role;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -10,6 +11,7 @@ import java.io.IOException;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
@@ -22,6 +24,7 @@ import org.springframework.web.servlet.HandlerExceptionResolver;
  * Sessions and CSRF for the ledger API (spec §8). Logging in posts a username and password form to
  * {@code /v1/sessions}, which starts an in-memory server-side session. The CSRF token travels from
  * the {@code XSRF-TOKEN} cookie to the {@code X-XSRF-TOKEN} header. Refusals are RFC 9457 problems.
+ * Roles follow the spec §7 table; ownership of Accounts is checked where the Account is read.
  */
 @Configuration
 class WebSecurity {
@@ -34,6 +37,8 @@ class WebSecurity {
             requests
                 .dispatcherTypeMatchers(DispatcherType.ERROR)
                 .permitAll()
+                .requestMatchers(HttpMethod.POST, "/v1/corrections")
+                .hasRole(Role.OPERATOR.name())
                 .anyRequest()
                 .authenticated())
         .formLogin(login ->
