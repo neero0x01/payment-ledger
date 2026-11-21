@@ -37,6 +37,7 @@ class JdbcPosting implements Posting {
   @Override
   @Transactional
   public TransactionId post(NewTransaction transaction) {
+    CorrectionFields correction = CorrectionFields.of(transaction.correction());
     UUID transactionId =
         jdbc.sql(
                 """
@@ -55,14 +56,8 @@ class JdbcPosting implements Posting {
                 "reversesTransactionId",
                 transaction.reverses().map(TransactionId::value).orElse(null),
                 Types.OTHER)
-            .param(
-                "correctionReason",
-                transaction.correction().map(c -> c.reason().name()).orElse(null),
-                Types.VARCHAR)
-            .param(
-                "correctionNote",
-                transaction.correction().map(CorrectionDetails::note).orElse(null),
-                Types.VARCHAR)
+            .param("correctionReason", correction.reason(), Types.VARCHAR)
+            .param("correctionNote", correction.note(), Types.VARCHAR)
             .query(UUID.class)
             .single();
     for (Entry entry : transaction.entries()) {

@@ -1,6 +1,5 @@
 package com.paymentledger.ledger.posting.internal;
 
-import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
@@ -44,14 +43,15 @@ class TransactionController {
       List<EntryResponse> entries) {
 
     static TransactionResponse of(PostedTransaction transaction) {
+      CorrectionFields correction = CorrectionFields.of(transaction.correction());
       return new TransactionResponse(
           transaction.id().value(),
           transaction.kind().name(),
           transaction.bookingTime(),
           transaction.payment().map(PaymentId::value).orElse(null),
           transaction.reverses().map(TransactionId::value).orElse(null),
-          transaction.correction().map(c -> c.reason().name()).orElse(null),
-          transaction.correction().map(CorrectionDetails::note).orElse(null),
+          correction.reason(),
+          correction.note(),
           transaction.entries().stream().map(EntryResponse::of).toList());
     }
   }
