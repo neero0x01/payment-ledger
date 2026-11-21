@@ -16,6 +16,7 @@ import net.jqwik.api.Combinators;
 import net.jqwik.api.ForAll;
 import net.jqwik.api.Property;
 import net.jqwik.api.Provide;
+import net.jqwik.api.constraints.LongRange;
 
 /** Property tests on the Transaction aggregate: it can never be built unbalanced. */
 class TransactionAggregatePropertiesTest {
@@ -51,6 +52,13 @@ class TransactionAggregatePropertiesTest {
     }
     assertThat(total(transaction.entries(), Side.DEBIT))
         .isEqualTo(total(transaction.entries(), Side.CREDIT));
+  }
+
+  @Property
+  void entries_refuse_amounts_that_are_not_positive(
+      @ForAll @LongRange(min = Long.MIN_VALUE, max = 0) long pence) {
+    assertThatThrownBy(() -> new Entry(ACCOUNTS.getFirst(), Side.DEBIT, Money.ofPence(pence)))
+        .isInstanceOf(IllegalArgumentException.class);
   }
 
   @Provide
