@@ -80,6 +80,35 @@ class InternalTransferTest {
   }
 
   @Test
+  void completed_internal_transfer_can_be_read_back_at_its_location() {
+    String location =
+        http.post()
+            .uri("/v1/payments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(transfer(a, b, 30_00))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(HttpStatus.CREATED)
+            .returnResult()
+            .getResponseHeaders()
+            .getFirst("Location");
+
+    PaymentView payment =
+        http.get()
+            .uri(location)
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody(PaymentView.class)
+            .returnResult()
+            .getResponseBody();
+
+    assertThat(payment).isNotNull();
+    assertThat(payment.status()).isEqualTo("COMPLETED");
+    assertThat(payment.transactionIds()).hasSize(1);
+  }
+
+  @Test
   void internal_transfer_moves_30_pounds_from_payer_to_payee() {
     makeTransfer(a, b, 30_00);
 
