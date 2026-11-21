@@ -1,9 +1,11 @@
 package com.paymentledger.ledger.accounts.internal;
 
 import com.paymentledger.ledger.accounts.Account;
+import com.paymentledger.ledger.accounts.AccountKind;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Side;
 import java.util.Optional;
 import java.util.UUID;
@@ -30,19 +32,33 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
-  public AccountId openCustomerAccount(CustomerId owner, String name) {
+  public AccountId openCustomerAccount(CustomerId owner, String name, Money overdraftLimit) {
     UUID id =
         jdbc.sql(
                 """
-                insert into account (kind, customer_id, name, normal_side)
-                values ('CUSTOMER', :customerId, :name, 'CREDIT')
+                insert into account (kind, customer_id, name, normal_side, overdraft_limit_pence)
+                values ('CUSTOMER', :customerId, :name, 'CREDIT', :overdraftLimitPence)
                 returning id
                 """)
             .param("customerId", owner.value())
             .param("name", name)
+            .param("overdraftLimitPence", overdraftLimit.pence())
             .query(UUID.class)
             .single();
     return new AccountId(id);
+  }
+
+  @Override
+  public void openCustomerAccount(AccountId id, CustomerId owner, String name) {
+    jdbc.sql(
+            """
+            insert into account (id, kind, customer_id, name, normal_side)
+            values (:id, 'CUSTOMER', :customerId, :name, 'CREDIT')
+            """)
+        .param("id", id.value())
+        .param("customerId", owner.value())
+        .param("name", name)
+        .update();
   }
 
   @Override
@@ -55,13 +71,25 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public AccountId corrections() {
+    UUID id =
+        jdbc.sql("select id from account where kind = 'INTERNAL' and name = 'Corrections'")
+            .query(UUID.class)
+            .single();
+    return new AccountId(id);
+  }
+
+  @Override
   public Optional<Account> find(AccountId id) {
-    return jdbc.sql("select id, normal_side from account where id = :id")
+    return jdbc.sql(
+            "select id, kind, normal_side, overdraft_limit_pence from account where id = :id")
         .param("id", id.value())
         .query((rs, rowNum) ->
             new Account(
                 new AccountId(rs.getObject("id", UUID.class)),
-                Side.valueOf(rs.getString("normal_side"))))
+                AccountKind.valueOf(rs.getString("kind")),
+                Side.valueOf(rs.getString("normal_side")),
+                Money.ofPence(rs.getLong("overdraft_limit_pence"))))
         .optional();
   }
 }

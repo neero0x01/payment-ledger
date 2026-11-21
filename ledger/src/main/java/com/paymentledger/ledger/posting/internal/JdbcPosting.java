@@ -2,6 +2,8 @@ package com.paymentledger.ledger.posting.internal;
 
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.posting.CorrectionDetails;
+import com.paymentledger.ledger.posting.CorrectionReason;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedTransaction;
@@ -35,16 +37,27 @@ class JdbcPosting implements Posting {
   @Override
   @Transactional
   public TransactionId post(NewTransaction transaction) {
+    CorrectionFields correction = CorrectionFields.of(transaction.correction());
     UUID transactionId =
         jdbc.sql(
                 """
-                insert into ledger_transaction (kind, booked_at, payment_id)
-                values (:kind, clock_timestamp(), :paymentId)
+                insert into ledger_transaction (
+                    kind, booked_at, payment_id, reverses_transaction_id,
+                    correction_reason, correction_note)
+                values (
+                    :kind, clock_timestamp(), :paymentId, :reversesTransactionId,
+                    :correctionReason, :correctionNote)
                 returning id
                 """)
             .param("kind", transaction.kind().name())
             .param(
                 "paymentId", transaction.payment().map(PaymentId::value).orElse(null), Types.OTHER)
+            .param(
+                "reversesTransactionId",
+                transaction.reverses().map(TransactionId::value).orElse(null),
+                Types.OTHER)
+            .param("correctionReason", correction.reason(), Types.VARCHAR)
+            .param("correctionNote", correction.note(), Types.VARCHAR)
             .query(UUID.class)
             .single();
     for (Entry entry : transaction.entries()) {
@@ -74,21 +87,43 @@ class JdbcPosting implements Posting {
             .list();
     return jdbc.sql(
             """
-            select id, kind, booked_at, payment_id
+            select id, kind, booked_at, payment_id, reverses_transaction_id,
+                   correction_reason, correction_note
             from ledger_transaction
             where id = :id
             """)
         .param("id", id.value())
         .query((rs, rowNum) -> {
           UUID paymentId = rs.getObject("payment_id", UUID.class);
+          UUID reverses = rs.getObject("reverses_transaction_id", UUID.class);
+          String reason = rs.getString("correction_reason");
           return new PostedTransaction(
               new TransactionId(rs.getObject("id", UUID.class)),
               TransactionKind.valueOf(rs.getString("kind")),
               rs.getObject("booked_at", OffsetDateTime.class).toInstant(),
               paymentId == null ? null : new PaymentId(paymentId),
+              reverses == null ? null : new TransactionId(reverses),
+              reason == null
+                  ? null
+                  : new CorrectionDetails(
+                      CorrectionReason.valueOf(reason), rs.getString("correction_note")),
               entries);
         })
         .optional();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public boolean isReversed(TransactionId transaction) {
+    return jdbc.sql(
+            """
+            select exists (
+                select 1 from ledger_transaction where reverses_transaction_id = :id
+            )
+            """)
+        .param("id", transaction.value())
+        .query(Boolean.class)
+        .single();
   }
 
   @Override

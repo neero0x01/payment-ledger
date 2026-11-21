@@ -5,6 +5,15 @@ spring:
     url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/ledger}
     username: ${LEDGER_DB_USER:ledger}
     password: ${LEDGER_DB_PASSWORD:ledger}
+    hikari:
+      # The application runs as ledger_app, which can only INSERT and SELECT Entries and
+      # Transactions (V3__ledger_app_role.sql).
+      connection-init-sql: set role ledger_app
+  flyway:
+    # Setting a user gives Flyway its own connection, so migrations run as the schema owner
+    # and not as ledger_app.
+    user: ${LEDGER_DB_USER:ledger}
+    password: ${LEDGER_DB_PASSWORD:ledger}
   mvc:
     apiversion:
       use:

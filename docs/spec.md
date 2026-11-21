@@ -60,7 +60,7 @@ Scenario numbers are stable IDs; numbers 5 and 8 are in the v2 backlog. Each cri
 
 ### Scenario 3: Insufficient funds and overdraft [M2]
 
-- **Given** A has a Balance of £50.00 and an Overdraft Limit of £100.00, **when** the Customer pays £150.00, **then** the Payment is Completed and A's Balance is −£50.00.
+- **Given** A has a Balance of £50.00 and an Overdraft Limit of £100.00, **when** the Customer pays £150.00, **then** the Payment is Completed and A's Balance is −£100.00.
 - **Given** the same Account, **when** the Customer pays £150.01 instead, **then** the response is `201` with the Payment Rejected with reason `INSUFFICIENT_FUNDS`, no Transaction is posted and Balances are unchanged.
 - **Given** FPS Clearing or Funding would go below zero, **when** a Transaction posts to it, **then** it is allowed, because Internal Accounts have no funds check.
 - **Given** a Correction has pushed A beyond its Overdraft Limit, **when** A tries to pay out, **then** every outbound Payment from A is Rejected with `INSUFFICIENT_FUNDS` until it is funded again.
@@ -251,7 +251,7 @@ All paths are under `/v1` (Spring Framework 7 API versioning). Errors are RFC 94
 | `GET /accounts/{id}/balance?asAt=` | owner, OPERATOR | Write side, authoritative |
 | `GET /accounts/{id}/statement?from&to&cursor` | owner, OPERATOR | Read Model, keyset on (booked_at, entry_seq) |
 | `GET /transactions/{id}` | OPERATOR | Write side |
-| `POST /corrections` | OPERATOR | Idempotency-Key required. `{kind: REVERSING / ADJUSTMENT, transactionId, reason, note, accountId?, amount?, direction?}` |
+| `POST /corrections` | OPERATOR | Idempotency-Key required. `{kind: REVERSING / ADJUSTMENT, transactionId?, reason, note, accountId?, amountPence?, direction?}`. `transactionId` is required for REVERSING and optional for ADJUSTMENT: a goodwill Adjustment corrects no Transaction, while one fixing a wrong amount names the Transaction it corrects. |
 | `GET /dashboard` | OPERATOR | Read Model plus lag and balanced-check gauges |
 | `POST /scheme/callbacks` | simulator (HMAC) | pacs.002-lite |
 | `POST /demo-sessions` | public | `{role: CUSTOMER / OPERATOR}`; rate-limited |

@@ -1,0 +1,5 @@
+# `docker compose up` from the repository root starts the local stack in infra/.
+name: payment-ledger
+
+include:
+  - infra/compose.yaml

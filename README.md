@@ -12,13 +12,32 @@ A double-entry payment ledger for a fictional small UK fintech, built in Java/Sp
 
 ## Status
 
-**Specified, not yet built** (as of 2026-11-21). Next up: milestone M1, the walking skeleton.
+**In progress** (as of 2026-11-21). Milestone M1, the walking skeleton, is built. M2's building blocks (funds checks, Overdraft Limits and Corrections) are under way.
 
 | | |
 |---|---|
 | Live demo | _not deployed yet_ |
 | Load test (N payments/s, p99) | _not run yet_ |
 | Grafana dashboard | _not published yet_ |
+
+## Run it locally
+
+You need Docker. From the repository root:
+
+```sh
+docker compose up --build
+```
+
+This starts Postgres 18, the ledger on http://localhost:8080 and the bare transfer page on http://localhost:5173. The ledger runs with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Make an Internal Transfer on the page and both Balances update. `docker compose down -v` stops everything and deletes the data.
+
+To work on the page with hot reload, keep Postgres and the ledger in Compose and run Vite yourself (it proxies `/v1` to the ledger):
+
+```sh
+docker compose up --build postgres ledger
+cd web && npm install && npm run dev
+```
+
+Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page.
 
 ## Docs
 

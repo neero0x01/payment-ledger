@@ -37,14 +37,21 @@ class TransactionController {
       String kind,
       Instant bookingTime,
       @Nullable UUID paymentId,
+      @Nullable UUID reversesTransactionId,
+      @Nullable String correctionReason,
+      @Nullable String correctionNote,
       List<EntryResponse> entries) {
 
     static TransactionResponse of(PostedTransaction transaction) {
+      CorrectionFields correction = CorrectionFields.of(transaction.correction());
       return new TransactionResponse(
           transaction.id().value(),
           transaction.kind().name(),
           transaction.bookingTime(),
           transaction.payment().map(PaymentId::value).orElse(null),
+          transaction.reverses().map(TransactionId::value).orElse(null),
+          correction.reason(),
+          correction.note(),
           transaction.entries().stream().map(EntryResponse::of).toList());
     }
   }
