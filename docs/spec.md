@@ -251,7 +251,7 @@ All paths are under `/v1` (Spring Framework 7 API versioning). Errors are RFC 94
 | `GET /accounts/{id}/balance?asAt=` | owner, OPERATOR | Write side, authoritative |
 | `GET /accounts/{id}/statement?from&to&cursor` | owner, OPERATOR | Read Model, keyset on (booked_at, entry_seq) |
 | `GET /transactions/{id}` | OPERATOR | Write side |
-| `POST /corrections` | OPERATOR | Idempotency-Key required. `{kind: REVERSING / ADJUSTMENT, transactionId, reason, note, accountId?, amount?, direction?}` |
+| `POST /corrections` | OPERATOR | Idempotency-Key required. `{kind: REVERSING / ADJUSTMENT, transactionId?, reason, note, accountId?, amount?, direction?}`. `transactionId` is required for REVERSING and optional for ADJUSTMENT: a goodwill Adjustment corrects no Transaction, while one fixing a wrong amount names the Transaction it corrects. |
 | `GET /dashboard` | OPERATOR | Read Model plus lag and balanced-check gauges |
 | `POST /scheme/callbacks` | simulator (HMAC) | pacs.002-lite |
 | `POST /demo-sessions` | public | `{role: CUSTOMER / OPERATOR}`; rate-limited |
