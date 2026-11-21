@@ -1,7 +1,6 @@
 package com.paymentledger.ledger.posting.internal;
 
 import com.paymentledger.ledger.accounts.Account;
-import com.paymentledger.ledger.accounts.AccountKind;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.NewTransaction;
@@ -40,7 +39,7 @@ class CorrectionService {
             .find(customerAccount)
             .orElseThrow(
                 () -> Problem.notFound("No Account " + customerAccount.value() + " exists"));
-    if (account.kind() != AccountKind.CUSTOMER) {
+    if (!account.isCustomerAccount()) {
       throw Problem.validationFailed(
           "An Adjustment moves money between a Customer Account and the Corrections Account");
     }

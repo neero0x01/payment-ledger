@@ -21,6 +21,11 @@ public record Account(AccountId id, AccountKind kind, Side normalSide, Money ove
    * no funds check.
    */
   public boolean canPayOut(Money amount, Money balance) {
-    return kind == AccountKind.INTERNAL || !amount.isGreaterThan(balance.plus(overdraftLimit));
+    return !isCustomerAccount() || !amount.isGreaterThan(balance.plus(overdraftLimit));
+  }
+
+  /** Whether this is a Customer Account rather than an Internal Account. */
+  public boolean isCustomerAccount() {
+    return kind == AccountKind.CUSTOMER;
   }
 }
