@@ -42,16 +42,20 @@ class InternalTransferTest {
         .expectHeader()
         .exists("Location")
         .expectBody()
-        .jsonPath("$.id").isNotEmpty()
-        .jsonPath("$.type").isEqualTo("INTERNAL_TRANSFER")
-        .jsonPath("$.status").isEqualTo("COMPLETED")
-        .jsonPath("$.amountPence").isEqualTo(30_00);
+        .jsonPath("$.id")
+        .isNotEmpty()
+        .jsonPath("$.type")
+        .isEqualTo("INTERNAL_TRANSFER")
+        .jsonPath("$.status")
+        .isEqualTo("COMPLETED")
+        .jsonPath("$.amountPence")
+        .isEqualTo(30_00);
   }
 
   private static String transfer(AccountId from, AccountId to, long amountPence) {
     return """
-        {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": %d}
-        """
+    {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": %d}
+    """
         .formatted(from.value(), to.value(), amountPence);
   }
 }
