@@ -3,6 +3,8 @@ package com.paymentledger.ledger.accounts;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Principal;
+import com.paymentledger.ledger.shared.Role;
 import com.paymentledger.ledger.shared.Side;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
@@ -25,6 +27,12 @@ public record Account(
     if ((kind == AccountKind.CUSTOMER) != (owner != null)) {
       throw new IllegalArgumentException("A Customer Account, and only one, has an owner");
     }
+  }
+
+  /** Whether the Principal may see this Account: an Operator sees every Account. */
+  public boolean isVisibleTo(Principal principal) {
+    return principal.role() == Role.OPERATOR
+        || principal.customerId().map(this::isOwnedBy).orElse(false);
   }
 
   /** Whether the Customer owns this Account. No Customer owns an Internal Account. */

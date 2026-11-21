@@ -54,9 +54,9 @@ class PaymentController {
   }
 
   @GetMapping(path = "/{version}/payments/{id}", version = "1")
-  PaymentResponse payment(@PathVariable UUID id) {
+  PaymentResponse payment(@AuthenticationPrincipal Principal principal, @PathVariable UUID id) {
     return payments
-        .find(new PaymentId(id))
+        .find(new PaymentId(id), principal)
         .map(this::toResponse)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
   }

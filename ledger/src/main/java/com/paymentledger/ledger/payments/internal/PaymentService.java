@@ -11,6 +11,7 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import java.util.List;
@@ -73,8 +74,17 @@ class PaymentService {
     return payments.find(id).orElseThrow();
   }
 
+  /** The Payment, if the Principal may see it: an Operator, or the owner of the payer's Account. */
   @Transactional(readOnly = true)
-  Optional<Payment> find(PaymentId id) {
-    return payments.find(id);
+  Optional<Payment> find(PaymentId id, Principal principal) {
+    Optional<Payment> payment = payments.find(id);
+    payment.ifPresent(found -> {
+      boolean visible =
+          accounts.find(found.debtorAccount()).map(a -> a.isVisibleTo(principal)).orElse(false);
+      if (!visible) {
+        throw Problem.forbidden("Payment " + id.value() + " is not yours to see");
+      }
+    });
+    return payment;
   }
 }

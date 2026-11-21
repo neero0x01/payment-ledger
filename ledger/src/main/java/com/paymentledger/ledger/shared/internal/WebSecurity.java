@@ -41,6 +41,8 @@ class WebSecurity {
                 .hasRole(Role.CUSTOMER.name())
                 .requestMatchers(HttpMethod.POST, "/v1/corrections")
                 .hasRole(Role.OPERATOR.name())
+                .requestMatchers(HttpMethod.GET, "/v1/transactions/**")
+                .hasRole(Role.OPERATOR.name())
                 .anyRequest()
                 .authenticated())
         .formLogin(login ->
