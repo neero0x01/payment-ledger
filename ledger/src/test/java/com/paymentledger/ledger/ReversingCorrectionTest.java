@@ -4,7 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.TransactionId;
 import java.time.Instant;
+import java.time.YearMonth;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -71,6 +75,20 @@ class ReversingCorrectionTest {
 
     assertThat(balancePenceOf(a)).isEqualTo(100_00);
     assertThat(balancePenceOf(b)).isZero();
+  }
+
+  @Test
+  void correction_of_a_transaction_booked_in_an_earlier_month_is_booked_now() {
+    AccountId c = ledger.customerAccountWithBalance(Money.ofPence(0));
+    Instant twoMonthsAgo = Instant.now().minus(62, ChronoUnit.DAYS).truncatedTo(ChronoUnit.MICROS);
+    TransactionId earlier = ledger.fundingBookedAt(c, Money.ofPence(40_00), twoMonthsAgo);
+
+    TransactionView correction = postReversingCorrection(earlier.value());
+
+    assertThat(YearMonth.from(correction.bookingTime().atZone(ZoneOffset.UTC)))
+        .isEqualTo(YearMonth.from(Instant.now().atZone(ZoneOffset.UTC)));
+    assertThat(transaction(earlier.value()).bookingTime()).isEqualTo(twoMonthsAgo);
+    assertThat(balancePenceOf(c)).isZero();
   }
 
   @Test
