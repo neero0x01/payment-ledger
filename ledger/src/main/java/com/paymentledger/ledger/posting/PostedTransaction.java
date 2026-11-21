@@ -13,6 +13,7 @@ public record PostedTransaction(
     TransactionKind kind,
     Instant bookingTime,
     @Nullable PaymentId originatingPayment,
+    @Nullable TransactionId reversedTransaction,
     List<Entry> entries) {
 
   public PostedTransaction {
@@ -21,5 +22,10 @@ public record PostedTransaction(
 
   public Optional<PaymentId> payment() {
     return Optional.ofNullable(originatingPayment);
+  }
+
+  /** The Transaction this one reverses, if it is a Reversing Correction. */
+  public Optional<TransactionId> reverses() {
+    return Optional.ofNullable(reversedTransaction);
   }
 }

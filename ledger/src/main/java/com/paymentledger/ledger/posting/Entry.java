@@ -17,6 +17,11 @@ public record Entry(AccountId account, Side side, Money amount) {
     }
   }
 
+  /** The same amount on the same Account, on the other side. */
+  public Entry mirrored() {
+    return new Entry(account, side == Side.DEBIT ? Side.CREDIT : Side.DEBIT, amount);
+  }
+
   /** How this Entry moves the Balance of an Account with the given Normal Side. */
   public Money balanceChange(Side normalSide) {
     return side == normalSide ? amount : amount.negate();

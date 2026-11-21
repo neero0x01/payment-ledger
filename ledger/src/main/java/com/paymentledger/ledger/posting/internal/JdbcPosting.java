@@ -38,13 +38,17 @@ class JdbcPosting implements Posting {
     UUID transactionId =
         jdbc.sql(
                 """
-                insert into ledger_transaction (kind, booked_at, payment_id)
-                values (:kind, clock_timestamp(), :paymentId)
+                insert into ledger_transaction (kind, booked_at, payment_id, reverses_transaction_id)
+                values (:kind, clock_timestamp(), :paymentId, :reversesTransactionId)
                 returning id
                 """)
             .param("kind", transaction.kind().name())
             .param(
                 "paymentId", transaction.payment().map(PaymentId::value).orElse(null), Types.OTHER)
+            .param(
+                "reversesTransactionId",
+                transaction.reverses().map(TransactionId::value).orElse(null),
+                Types.OTHER)
             .query(UUID.class)
             .single();
     for (Entry entry : transaction.entries()) {
@@ -74,18 +78,20 @@ class JdbcPosting implements Posting {
             .list();
     return jdbc.sql(
             """
-            select id, kind, booked_at, payment_id
+            select id, kind, booked_at, payment_id, reverses_transaction_id
             from ledger_transaction
             where id = :id
             """)
         .param("id", id.value())
         .query((rs, rowNum) -> {
           UUID paymentId = rs.getObject("payment_id", UUID.class);
+          UUID reverses = rs.getObject("reverses_transaction_id", UUID.class);
           return new PostedTransaction(
               new TransactionId(rs.getObject("id", UUID.class)),
               TransactionKind.valueOf(rs.getString("kind")),
               rs.getObject("booked_at", OffsetDateTime.class).toInstant(),
               paymentId == null ? null : new PaymentId(paymentId),
+              reverses == null ? null : new TransactionId(reverses),
               entries);
         })
         .optional();

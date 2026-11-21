@@ -3,6 +3,7 @@ package com.paymentledger.ledger.posting;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Side;
+import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -13,7 +14,10 @@ import org.jspecify.annotations.Nullable;
  * two Entries and its Debits total equals its Credits total.
  */
 public record NewTransaction(
-    TransactionKind kind, @Nullable PaymentId originatingPayment, List<Entry> entries) {
+    TransactionKind kind,
+    @Nullable PaymentId originatingPayment,
+    @Nullable TransactionId reversedTransaction,
+    List<Entry> entries) {
 
   public NewTransaction {
     Objects.requireNonNull(kind, "kind");
@@ -30,15 +34,33 @@ public record NewTransaction(
   }
 
   public static NewTransaction funding(List<Entry> entries) {
-    return new NewTransaction(TransactionKind.FUNDING, null, entries);
+    return new NewTransaction(TransactionKind.FUNDING, null, null, entries);
   }
 
   public static NewTransaction forPayment(PaymentId payment, List<Entry> entries) {
-    return new NewTransaction(TransactionKind.PAYMENT, Objects.requireNonNull(payment), entries);
+    return new NewTransaction(
+        TransactionKind.PAYMENT, Objects.requireNonNull(payment), null, entries);
+  }
+
+  /**
+   * A Reversing Correction of the original: its Entries mirrored with the sides swapped, linked to
+   * the original, which is never changed.
+   */
+  public static NewTransaction reversingCorrection(PostedTransaction original) {
+    return new NewTransaction(
+        TransactionKind.CORRECTION,
+        null,
+        original.id(),
+        original.entries().stream().map(Entry::mirrored).toList());
   }
 
   public Optional<PaymentId> payment() {
     return Optional.ofNullable(originatingPayment);
+  }
+
+  /** The Transaction this one reverses, if it is a Reversing Correction. */
+  public Optional<TransactionId> reverses() {
+    return Optional.ofNullable(reversedTransaction);
   }
 
   private static Money total(List<Entry> entries, Side side) {

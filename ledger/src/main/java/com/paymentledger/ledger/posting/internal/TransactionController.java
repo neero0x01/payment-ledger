@@ -37,6 +37,7 @@ class TransactionController {
       String kind,
       Instant bookingTime,
       @Nullable UUID paymentId,
+      @Nullable UUID reversesTransactionId,
       List<EntryResponse> entries) {
 
     static TransactionResponse of(PostedTransaction transaction) {
@@ -45,6 +46,7 @@ class TransactionController {
           transaction.kind().name(),
           transaction.bookingTime(),
           transaction.payment().map(PaymentId::value).orElse(null),
+          transaction.reverses().map(TransactionId::value).orElse(null),
           transaction.entries().stream().map(EntryResponse::of).toList());
     }
   }
