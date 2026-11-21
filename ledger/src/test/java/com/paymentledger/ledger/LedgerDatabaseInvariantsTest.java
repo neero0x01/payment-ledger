@@ -101,6 +101,20 @@ class LedgerDatabaseInvariantsTest {
         .hasMessageContaining("permission denied");
   }
 
+  @Test
+  void a_table_added_by_a_later_migration_is_append_only_for_the_application_by_default() {
+    assertThatThrownBy(() ->
+            transaction.executeWithoutResult(status -> {
+              jdbc.sql("reset role").update();
+              jdbc.sql("create table rf_later_table (id bigint)").update();
+              jdbc.sql("set role ledger_app").update();
+              jdbc.sql("update rf_later_table set id = id + 1").update();
+            }))
+        .isInstanceOf(DataAccessException.class)
+        .rootCause()
+        .hasMessageContaining("permission denied");
+  }
+
   private UUID insertFundingTransaction() {
     return jdbc.sql(
             """
