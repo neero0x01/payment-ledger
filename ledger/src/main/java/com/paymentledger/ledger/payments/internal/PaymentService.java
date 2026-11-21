@@ -29,6 +29,9 @@ class PaymentService {
    */
   @Transactional
   Payment makeInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
+    if (!amount.isPositive()) {
+      throw PaymentProblems.validationFailed("The amount must be more than zero");
+    }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
     posting.post(
         NewTransaction.forPayment(
