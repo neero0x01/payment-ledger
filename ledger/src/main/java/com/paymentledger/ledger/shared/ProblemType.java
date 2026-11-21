@@ -6,7 +6,9 @@ import java.net.URI;
 public enum ProblemType {
   VALIDATION_FAILED("validation-failed", "Validation failed", 400),
   NOT_FOUND("not-found", "Not found", 404),
-  ALREADY_REVERSED("already-reversed", "Already reversed", 409);
+  ALREADY_REVERSED("already-reversed", "Already reversed", 409),
+  UNAUTHENTICATED("unauthenticated", "Unauthenticated", 401),
+  FORBIDDEN("forbidden", "Forbidden", 403);
 
   private final URI uri;
   private final String title;

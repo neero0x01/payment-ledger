@@ -6,6 +6,7 @@ import com.paymentledger.ledger.accounts.Logins;
 import com.paymentledger.ledger.shared.AccountId;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
@@ -86,10 +87,11 @@ public class Sessions {
         .exchange();
   }
 
+  /** The cookie's value as a browser keeps it: the last Set-Cookie of that name wins. */
   static String cookie(ExchangeResult result, String name) {
-    ResponseCookie cookie = result.getResponseCookies().getFirst(name);
-    assertThat(cookie).as("Set-Cookie %s", name).isNotNull();
-    return cookie.getValue();
+    List<ResponseCookie> cookies = result.getResponseCookies().getOrDefault(name, List.of());
+    assertThat(cookies).as("Set-Cookie %s", name).isNotEmpty();
+    return cookies.getLast().getValue();
   }
 
   private static String encode(String value) {

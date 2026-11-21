@@ -21,3 +21,9 @@ spring:
       supported: "1"
     problemdetails:
       enabled: true
+server:
+  servlet:
+    session:
+      cookie:
+        # The SPA and the API are the same site (spec §8).
+        same-site: lax

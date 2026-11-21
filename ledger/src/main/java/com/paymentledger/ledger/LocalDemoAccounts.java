@@ -1,6 +1,7 @@
 package com.paymentledger.ledger;
 
 import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.accounts.Logins;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.Posting;
@@ -19,7 +20,8 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Opens the two Customer Accounts the bare transfer page shows when the ledger runs locally: A
  * funded with £100.00 from Funding by a real Transaction, and B empty. Their ids are fixed so the
- * page knows them; it runs once per database.
+ * page knows them; it runs once per database. Their Customer logs in as {@code local-customer} with
+ * the password {@code local-customer}.
  */
 @Component
 @Profile("local")
@@ -31,11 +33,15 @@ class LocalDemoAccounts implements ApplicationRunner {
       new AccountId(UUID.fromString("019a0000-0000-7000-8000-00000000000b"));
   private static final Money OPENING_BALANCE_OF_A = Money.ofPence(100_00);
 
+  static final String LOCAL_CUSTOMER_LOGIN = "local-customer";
+
   private final Accounts accounts;
+  private final Logins logins;
   private final Posting posting;
 
-  LocalDemoAccounts(Accounts accounts, Posting posting) {
+  LocalDemoAccounts(Accounts accounts, Logins logins, Posting posting) {
     this.accounts = accounts;
+    this.logins = logins;
     this.posting = posting;
   }
 
@@ -46,6 +52,7 @@ class LocalDemoAccounts implements ApplicationRunner {
       return;
     }
     CustomerId customer = accounts.registerCustomer("Local Demo Customer");
+    logins.addCustomerLogin(customer, LOCAL_CUSTOMER_LOGIN, LOCAL_CUSTOMER_LOGIN);
     accounts.openCustomerAccount(ACCOUNT_A, customer, "Account A");
     accounts.openCustomerAccount(ACCOUNT_B, customer, "Account B");
     posting.post(
