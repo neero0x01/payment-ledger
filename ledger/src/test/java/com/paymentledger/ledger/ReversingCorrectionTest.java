@@ -70,6 +70,41 @@ class ReversingCorrectionTest {
   }
 
   @Test
+  void reversing_correction_records_its_correction_reason_and_note() {
+    TransactionView correction = postReversingCorrection(mistake);
+
+    assertThat(correction.correctionReason()).isEqualTo("DUPLICATE_POSTING");
+    assertThat(correction.correctionNote()).isEqualTo("Paid twice by mistake");
+    assertThat(transaction(correction.id())).isEqualTo(correction);
+  }
+
+  @Test
+  void reversing_correction_without_a_correction_reason_is_refused_as_validation_failed() {
+    expectProblem(
+        """
+        {"kind": "REVERSING", "transactionId": "%s", "note": "Paid twice by mistake"}
+        """
+            .formatted(mistake),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+  }
+
+  @Test
+  void reversing_correction_without_a_note_is_refused_as_validation_failed() {
+    expectProblem(
+        """
+        {"kind": "REVERSING", "transactionId": "%s", "reason": "DUPLICATE_POSTING"}
+        """
+            .formatted(mistake),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+  }
+
+  @Test
   void reversing_correction_returns_balances_to_what_they_were_before_the_original() {
     postReversingCorrection(mistake);
 
@@ -153,7 +188,8 @@ class ReversingCorrectionTest {
 
   private static String reversing(UUID transactionId) {
     return """
-    {"kind": "REVERSING", "transactionId": "%s"}
+    {"kind": "REVERSING", "transactionId": "%s", "reason": "DUPLICATE_POSTING",
+     "note": "Paid twice by mistake"}
     """
         .formatted(transactionId);
   }
@@ -213,6 +249,8 @@ class ReversingCorrectionTest {
       String kind,
       Instant bookingTime,
       @Nullable UUID reversesTransactionId,
+      @Nullable String correctionReason,
+      @Nullable String correctionNote,
       List<EntryView> entries) {}
 
   record EntryView(UUID accountId, String side, long amountPence) {}

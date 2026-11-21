@@ -77,6 +77,61 @@ class AdjustmentTest {
     assertThat(balancePenceOf(customer)).isEqualTo(17_00);
   }
 
+  @Test
+  void adjustment_without_a_correction_reason_is_refused_as_validation_failed_and_posts_nothing() {
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "note": "Sorry for the delay",
+         "accountId": "%s", "amountPence": 500, "direction": "CREDIT"}
+        """
+            .formatted(customer.value()));
+
+    assertThat(balancePenceOf(customer)).isEqualTo(20_00);
+  }
+
+  @Test
+  void adjustment_without_a_note_is_refused_as_validation_failed_and_posts_nothing() {
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "reason": "GOODWILL",
+         "accountId": "%s", "amountPence": 500, "direction": "CREDIT"}
+        """
+            .formatted(customer.value()));
+
+    assertThat(balancePenceOf(customer)).isEqualTo(20_00);
+  }
+
+  @Test
+  void adjustment_with_a_blank_note_is_refused_as_validation_failed_and_posts_nothing() {
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "  ",
+         "accountId": "%s", "amountPence": 500, "direction": "CREDIT"}
+        """
+            .formatted(customer.value()));
+
+    assertThat(balancePenceOf(customer)).isEqualTo(20_00);
+  }
+
+  private void expectValidationFailed(String body) {
+    http.post()
+        .uri("/v1/corrections")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(body)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.BAD_REQUEST)
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectHeader()
+        .doesNotExist("Location")
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/validation-failed")
+        .jsonPath("$.detail")
+        .isNotEmpty();
+  }
+
   private TransactionView postAdjustment(String body) {
     TransactionView adjustment =
         http.post()
