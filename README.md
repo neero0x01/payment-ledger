@@ -12,7 +12,7 @@ A double-entry payment ledger for a fictional small UK fintech, built in Java/Sp
 
 ## Status
 
-**Specified, not yet built** (as of 2026-11-21). Next up: milestone M1, the walking skeleton.
+**In progress** (as of 2026-11-21). Milestone M1, the walking skeleton, is built. M2's building blocks (funds checks, Overdraft Limits and Corrections) are under way.
 
 | | |
 |---|---|
