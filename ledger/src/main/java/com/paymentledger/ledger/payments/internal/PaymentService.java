@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.payments.internal;
 
+import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
@@ -50,8 +51,9 @@ class PaymentService {
       throw PaymentProblems.notFound("No Account " + payee.value() + " exists to pay");
     }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
+    Account payer = accounts.find(debtor).orElseThrow();
     Money balance = posting.balanceOf(debtor).orElseThrow();
-    if (amount.isGreaterThan(balance)) {
+    if (amount.isGreaterThan(payer.availableBalance(balance))) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
       return payments.find(id).orElseThrow();
     }
