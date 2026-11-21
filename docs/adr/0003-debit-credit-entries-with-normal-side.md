@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # Entries carry a positive amount and a side; Accounts have a Normal Side
+
+**Status: Accepted** in M2. Money, the Transaction aggregate and the Normal Side are built on it, and a deferred database trigger checks Σdebits = Σcredits at commit.
 
 Each Entry stores a positive amount in pence and a side, Debit or Credit, not a signed amount. Each Account has a Normal Side: Customer Accounts are credit-normal (they are the fintech's liability), and Funding and FPS Clearing are debit-normal. Balances are reported on the Account's Normal Side.
 
