@@ -33,16 +33,26 @@ class CorrectionController {
         switch (request.kind()) {
           case REVERSING ->
               corrections.reverse(new TransactionId(request.transactionId()), details);
-          case ADJUSTMENT ->
-              corrections.adjust(
-                  new AccountId(request.accountId()),
-                  request.direction(),
-                  Money.ofPence(request.amountPence()),
-                  details);
+          case ADJUSTMENT -> adjust(request, details);
         };
     return ResponseEntity.created(
             uri.path("/v1/transactions/{id}").buildAndExpand(correction.id().value()).toUri())
         .body(TransactionResponse.of(correction));
+  }
+
+  private PostedTransaction adjust(CorrectionRequest request, CorrectionDetails details) {
+    UUID account = request.accountId();
+    Long amountPence = request.amountPence();
+    Side direction = request.direction();
+    if (account == null || amountPence == null || direction == null) {
+      throw CorrectionProblems.validationFailed(
+          "An Adjustment needs an accountId, an amountPence and a direction");
+    }
+    if (amountPence <= 0) {
+      throw CorrectionProblems.validationFailed("The amount must be more than zero");
+    }
+    return corrections.adjust(
+        new AccountId(account), direction, Money.ofPence(amountPence), details);
   }
 
   /** Every Correction carries a Correction Reason and a note. */
@@ -69,7 +79,7 @@ class CorrectionController {
       UUID transactionId,
       @Nullable CorrectionReason reason,
       @Nullable String note,
-      UUID accountId,
+      @Nullable UUID accountId,
       @Nullable Long amountPence,
-      Side direction) {}
+      @Nullable Side direction) {}
 }
