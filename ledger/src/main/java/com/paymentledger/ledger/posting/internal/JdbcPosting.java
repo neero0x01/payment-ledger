@@ -4,10 +4,18 @@ import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
+import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
+import com.paymentledger.ledger.posting.TransactionKind;
+import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.sql.Types;
+import java.time.OffsetDateTime;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -44,6 +52,62 @@ class JdbcPosting implements Posting {
       applyToBalance(entry);
     }
     return new TransactionId(transactionId);
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<PostedTransaction> find(TransactionId id) {
+    List<Entry> entries =
+        jdbc.sql(
+                """
+                select account_id, side, amount_pence
+                from entry
+                where transaction_id = :id
+                order by id
+                """)
+            .param("id", id.value())
+            .query((rs, rowNum) ->
+                new Entry(
+                    new AccountId(rs.getObject("account_id", UUID.class)),
+                    Side.valueOf(rs.getString("side")),
+                    Money.ofPence(rs.getLong("amount_pence"))))
+            .list();
+    return jdbc.sql(
+            """
+            select id, kind, booked_at, payment_id
+            from ledger_transaction
+            where id = :id
+            """)
+        .param("id", id.value())
+        .query((rs, rowNum) -> {
+          UUID paymentId = rs.getObject("payment_id", UUID.class);
+          return new PostedTransaction(
+              new TransactionId(rs.getObject("id", UUID.class)),
+              TransactionKind.valueOf(rs.getString("kind")),
+              rs.getObject("booked_at", OffsetDateTime.class).toInstant(),
+              paymentId == null ? null : new PaymentId(paymentId),
+              entries);
+        })
+        .optional();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<TransactionId> transactionsOf(PaymentId payment) {
+    return jdbc
+        .sql(
+            """
+            select id
+            from ledger_transaction
+            where payment_id = :paymentId
+            order by booked_at, id
+            """)
+        .param("paymentId", payment.value())
+        .query(UUID.class)
+        .list()
+        .stream()
+        .map(TransactionId::new)
+        .toList();
   }
 
   private void insertEntry(UUID transactionId, Entry entry) {

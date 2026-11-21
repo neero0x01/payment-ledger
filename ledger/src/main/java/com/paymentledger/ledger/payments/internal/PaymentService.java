@@ -8,6 +8,7 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Side;
+import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,5 +36,9 @@ class PaymentService {
             List.of(new Entry(debtor, Side.DEBIT, amount), new Entry(payee, Side.CREDIT, amount))));
     payments.markCompleted(id);
     return payments.find(id).orElseThrow();
+  }
+
+  List<TransactionId> transactionsOf(PaymentId payment) {
+    return posting.transactionsOf(payment);
   }
 }

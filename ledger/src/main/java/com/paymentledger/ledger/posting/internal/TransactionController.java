@@ -1,0 +1,59 @@
+package com.paymentledger.ledger.posting.internal;
+
+import com.paymentledger.ledger.posting.Entry;
+import com.paymentledger.ledger.posting.PostedTransaction;
+import com.paymentledger.ledger.posting.Posting;
+import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.TransactionId;
+import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
+import org.jspecify.annotations.Nullable;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestController
+class TransactionController {
+
+  private final Posting posting;
+
+  TransactionController(Posting posting) {
+    this.posting = posting;
+  }
+
+  @GetMapping(path = "/{version}/transactions/{id}", version = "1")
+  TransactionResponse transaction(@PathVariable UUID id) {
+    return posting
+        .find(new TransactionId(id))
+        .map(TransactionResponse::of)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
+  }
+
+  record TransactionResponse(
+      UUID id,
+      String kind,
+      Instant bookingTime,
+      @Nullable UUID paymentId,
+      List<EntryResponse> entries) {
+
+    static TransactionResponse of(PostedTransaction transaction) {
+      return new TransactionResponse(
+          transaction.id().value(),
+          transaction.kind().name(),
+          transaction.bookingTime(),
+          transaction.payment().map(PaymentId::value).orElse(null),
+          transaction.entries().stream().map(EntryResponse::of).toList());
+    }
+  }
+
+  record EntryResponse(UUID accountId, String side, long amountPence) {
+
+    static EntryResponse of(Entry entry) {
+      return new EntryResponse(
+          entry.account().value(), entry.side().name(), entry.amount().pence());
+    }
+  }
+}

@@ -3,6 +3,8 @@ package com.paymentledger.ledger.payments.internal;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.TransactionId;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -29,7 +31,7 @@ class PaymentController {
             Money.ofPence(request.amountPence()));
     return ResponseEntity.created(
             uri.path("/v1/payments/{id}").buildAndExpand(payment.id().value()).toUri())
-        .body(PaymentResponse.of(payment));
+        .body(PaymentResponse.of(payment, payments.transactionsOf(payment.id())));
   }
 
   record PaymentRequest(UUID debtorAccountId, PayeeBody payee, long amountPence) {}
@@ -42,16 +44,18 @@ class PaymentController {
       String status,
       UUID debtorAccountId,
       PayeeBody payee,
-      long amountPence) {
+      long amountPence,
+      List<UUID> transactionIds) {
 
-    static PaymentResponse of(Payment payment) {
+    static PaymentResponse of(Payment payment, List<TransactionId> transactions) {
       return new PaymentResponse(
           payment.id().value(),
           payment.type().name(),
           payment.status().name(),
           payment.debtorAccount().value(),
           new PayeeBody(payment.payeeAccount().value()),
-          payment.amount().pence());
+          payment.amount().pence(),
+          transactions.stream().map(TransactionId::value).toList());
     }
   }
 }
