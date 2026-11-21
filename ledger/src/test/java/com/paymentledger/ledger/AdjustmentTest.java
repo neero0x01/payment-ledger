@@ -113,6 +113,60 @@ class AdjustmentTest {
     assertThat(balancePenceOf(customer)).isEqualTo(20_00);
   }
 
+  @Test
+  void adjustment_of_a_zero_amount_is_refused_as_validation_failed_and_posts_nothing() {
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Sorry for the delay",
+         "accountId": "%s", "amountPence": 0, "direction": "CREDIT"}
+        """
+            .formatted(customer.value()));
+
+    assertThat(balancePenceOf(customer)).isEqualTo(20_00);
+  }
+
+  @Test
+  void adjustment_without_an_account_amount_or_direction_is_refused_as_validation_failed() {
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Sorry for the delay",
+         "amountPence": 500, "direction": "CREDIT"}
+        """);
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Sorry for the delay",
+         "accountId": "%s", "direction": "CREDIT"}
+        """
+            .formatted(customer.value()));
+    expectValidationFailed(
+        """
+        {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Sorry for the delay",
+         "accountId": "%s", "amountPence": 500}
+        """
+            .formatted(customer.value()));
+
+    assertThat(balancePenceOf(customer)).isEqualTo(20_00);
+  }
+
+  @Test
+  void adjustment_of_an_unknown_account_is_refused_as_not_found() {
+    http.post()
+        .uri("/v1/corrections")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Sorry for the delay",
+             "accountId": "%s", "amountPence": 500, "direction": "CREDIT"}
+            """
+                .formatted(UUID.randomUUID()))
+        .exchange()
+        .expectStatus()
+        .isNotFound()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/not-found");
+  }
+
   private void expectValidationFailed(String body) {
     http.post()
         .uri("/v1/corrections")
