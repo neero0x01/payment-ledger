@@ -25,6 +25,33 @@ class InsufficientFundsTest {
   @Autowired LedgerFixture ledger;
 
   @Test
+  void completes_a_payment_within_the_overdraft_limit_taking_the_payer_below_zero() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(50_00), Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+
+    PaymentView payment = makePayment(a, b, 150_00);
+
+    assertThat(payment.status()).isEqualTo("COMPLETED");
+    assertThat(payment.rejectionReason()).isNull();
+    assertThat(balancePenceOf(a)).isEqualTo(-50_00);
+    assertThat(balancePenceOf(b)).isEqualTo(150_00);
+  }
+
+  @Test
+  void rejects_a_payment_one_penny_beyond_balance_plus_overdraft_limit_and_posts_nothing() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(50_00), Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+
+    PaymentView payment = makePayment(a, b, 150_01);
+
+    assertThat(payment.status()).isEqualTo("REJECTED");
+    assertThat(payment.rejectionReason()).isEqualTo("INSUFFICIENT_FUNDS");
+    assertThat(payment.transactionIds()).isEmpty();
+    assertThat(balancePenceOf(a)).isEqualTo(50_00);
+    assertThat(balancePenceOf(b)).isZero();
+  }
+
+  @Test
   void rejects_payment_beyond_available_balance_with_insufficient_funds_and_posts_nothing() {
     AccountId a = ledger.customerAccountWithBalance(Money.ofPence(50_00));
     AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));

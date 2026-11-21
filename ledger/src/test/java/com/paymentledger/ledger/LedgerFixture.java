@@ -45,8 +45,16 @@ public class LedgerFixture {
 
   /** Opens a Customer Account for a new Customer, funded from Funding by a real Transaction. */
   public AccountId customerAccountWithBalance(Money balance) {
+    return customerAccountWithBalance(balance, Money.ofPence(0));
+  }
+
+  /**
+   * Opens a Customer Account with an Overdraft Limit for a new Customer, funded from Funding by a
+   * real Transaction.
+   */
+  public AccountId customerAccountWithBalance(Money balance, Money overdraftLimit) {
     CustomerId customer = accounts.registerCustomer("Test Customer");
-    AccountId account = accounts.openCustomerAccount(customer, "Main");
+    AccountId account = accounts.openCustomerAccount(customer, "Main", overdraftLimit);
     if (balance.isPositive()) {
       posting.post(
           NewTransaction.funding(
