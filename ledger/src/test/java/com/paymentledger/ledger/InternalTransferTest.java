@@ -79,6 +79,27 @@ class InternalTransferTest {
             new EntryView(a.value(), "DEBIT", 30_00), new EntryView(b.value(), "CREDIT", 30_00));
   }
 
+  @Test
+  void internal_transfer_moves_30_pounds_from_payer_to_payee() {
+    makeTransfer(a, b, 30_00);
+
+    assertThat(balanceOf(a)).isEqualTo(new BalanceView(a.value(), 70_00));
+    assertThat(balanceOf(b)).isEqualTo(new BalanceView(b.value(), 30_00));
+  }
+
+  private BalanceView balanceOf(AccountId account) {
+    return http.get()
+        .uri("/v1/accounts/{id}/balance", account.value())
+        .exchange()
+        .expectStatus()
+        .isOk()
+        .expectBody(BalanceView.class)
+        .returnResult()
+        .getResponseBody();
+  }
+
+  record BalanceView(UUID accountId, long balancePence) {}
+
   private PaymentView makeTransfer(AccountId from, AccountId to, long amountPence) {
     PaymentView payment =
         http.post()
