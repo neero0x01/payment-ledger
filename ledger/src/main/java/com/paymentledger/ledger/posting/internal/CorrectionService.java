@@ -1,8 +1,13 @@
 package com.paymentledger.ledger.posting.internal;
 
+import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
+import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -13,9 +18,28 @@ import org.springframework.transaction.annotation.Transactional;
 class CorrectionService {
 
   private final Posting posting;
+  private final Accounts accounts;
 
-  CorrectionService(Posting posting) {
+  CorrectionService(Posting posting, Accounts accounts) {
     this.posting = posting;
+    this.accounts = accounts;
+  }
+
+  /**
+   * Posts an Adjustment of the amount to the Customer Account on the given side, against the
+   * Corrections Account. Corrections skip the funds check.
+   */
+  @Transactional
+  PostedTransaction adjust(
+      AccountId customerAccount, Side side, Money amount, CorrectionDetails correction) {
+    if (accounts.find(customerAccount).isEmpty()) {
+      throw CorrectionProblems.notFound("No Account " + customerAccount.value() + " exists");
+    }
+    TransactionId adjustment =
+        posting.post(
+            NewTransaction.adjustment(
+                customerAccount, side, amount, accounts.corrections(), correction));
+    return posting.find(adjustment).orElseThrow();
   }
 
   /**

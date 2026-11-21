@@ -45,10 +45,7 @@ public class LedgerFixture {
 
   /** The Corrections Account, on the other side of every Adjustment. */
   public AccountId corrections() {
-    return new AccountId(
-        jdbc.sql("select id from account where kind = 'INTERNAL' and name = 'Corrections'")
-            .query(UUID.class)
-            .single());
+    return accounts.corrections();
   }
 
   /** Opens a Customer Account for a new Customer, funded from Funding by a real Transaction. */

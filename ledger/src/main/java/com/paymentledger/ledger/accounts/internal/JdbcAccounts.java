@@ -71,6 +71,15 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public AccountId corrections() {
+    UUID id =
+        jdbc.sql("select id from account where kind = 'INTERNAL' and name = 'Corrections'")
+            .query(UUID.class)
+            .single();
+    return new AccountId(id);
+  }
+
+  @Override
   public Optional<Account> find(AccountId id) {
     return jdbc.sql(
             "select id, kind, normal_side, overdraft_limit_pence from account where id = :id")

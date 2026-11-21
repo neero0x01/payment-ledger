@@ -2,6 +2,8 @@ package com.paymentledger.ledger.posting.internal;
 
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.posting.CorrectionDetails;
+import com.paymentledger.ledger.posting.CorrectionReason;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedTransaction;
@@ -38,8 +40,12 @@ class JdbcPosting implements Posting {
     UUID transactionId =
         jdbc.sql(
                 """
-                insert into ledger_transaction (kind, booked_at, payment_id, reverses_transaction_id)
-                values (:kind, clock_timestamp(), :paymentId, :reversesTransactionId)
+                insert into ledger_transaction (
+                    kind, booked_at, payment_id, reverses_transaction_id,
+                    correction_reason, correction_note)
+                values (
+                    :kind, clock_timestamp(), :paymentId, :reversesTransactionId,
+                    :correctionReason, :correctionNote)
                 returning id
                 """)
             .param("kind", transaction.kind().name())
@@ -49,6 +55,14 @@ class JdbcPosting implements Posting {
                 "reversesTransactionId",
                 transaction.reverses().map(TransactionId::value).orElse(null),
                 Types.OTHER)
+            .param(
+                "correctionReason",
+                transaction.correction().map(c -> c.reason().name()).orElse(null),
+                Types.VARCHAR)
+            .param(
+                "correctionNote",
+                transaction.correction().map(CorrectionDetails::note).orElse(null),
+                Types.VARCHAR)
             .query(UUID.class)
             .single();
     for (Entry entry : transaction.entries()) {
@@ -78,7 +92,8 @@ class JdbcPosting implements Posting {
             .list();
     return jdbc.sql(
             """
-            select id, kind, booked_at, payment_id, reverses_transaction_id
+            select id, kind, booked_at, payment_id, reverses_transaction_id,
+                   correction_reason, correction_note
             from ledger_transaction
             where id = :id
             """)
@@ -86,12 +101,17 @@ class JdbcPosting implements Posting {
         .query((rs, rowNum) -> {
           UUID paymentId = rs.getObject("payment_id", UUID.class);
           UUID reverses = rs.getObject("reverses_transaction_id", UUID.class);
+          String reason = rs.getString("correction_reason");
           return new PostedTransaction(
               new TransactionId(rs.getObject("id", UUID.class)),
               TransactionKind.valueOf(rs.getString("kind")),
               rs.getObject("booked_at", OffsetDateTime.class).toInstant(),
               paymentId == null ? null : new PaymentId(paymentId),
               reverses == null ? null : new TransactionId(reverses),
+              reason == null
+                  ? null
+                  : new CorrectionDetails(
+                      CorrectionReason.valueOf(reason), rs.getString("correction_note")),
               entries);
         })
         .optional();

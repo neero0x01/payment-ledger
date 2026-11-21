@@ -19,5 +19,8 @@ public interface Accounts {
   /** The Funding Account, which money in Customer Accounts comes from in v1. */
   AccountId funding();
 
+  /** The Corrections Account, on the other side of every Adjustment. */
+  AccountId corrections();
+
   Optional<Account> find(AccountId id);
 }

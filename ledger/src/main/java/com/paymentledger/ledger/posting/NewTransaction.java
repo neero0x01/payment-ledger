@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.posting;
 
+import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Side;
@@ -17,6 +18,7 @@ public record NewTransaction(
     TransactionKind kind,
     @Nullable PaymentId originatingPayment,
     @Nullable TransactionId reversedTransaction,
+    @Nullable CorrectionDetails correctionDetails,
     List<Entry> entries) {
 
   public NewTransaction {
@@ -34,12 +36,12 @@ public record NewTransaction(
   }
 
   public static NewTransaction funding(List<Entry> entries) {
-    return new NewTransaction(TransactionKind.FUNDING, null, null, entries);
+    return new NewTransaction(TransactionKind.FUNDING, null, null, null, entries);
   }
 
   public static NewTransaction forPayment(PaymentId payment, List<Entry> entries) {
     return new NewTransaction(
-        TransactionKind.PAYMENT, Objects.requireNonNull(payment), null, entries);
+        TransactionKind.PAYMENT, Objects.requireNonNull(payment), null, null, entries);
   }
 
   /**
@@ -51,7 +53,27 @@ public record NewTransaction(
         TransactionKind.CORRECTION,
         null,
         original.id(),
+        null,
         original.entries().stream().map(Entry::mirrored).toList());
+  }
+
+  /**
+   * An Adjustment: the amount posted to the Customer Account on the given side, and to the
+   * Corrections Account on the other.
+   */
+  public static NewTransaction adjustment(
+      AccountId customerAccount,
+      Side customerSide,
+      Money amount,
+      AccountId correctionsAccount,
+      CorrectionDetails correction) {
+    Entry customerEntry = new Entry(customerAccount, customerSide, amount);
+    return new NewTransaction(
+        TransactionKind.CORRECTION,
+        null,
+        null,
+        Objects.requireNonNull(correction),
+        List.of(customerEntry.mirroredOnto(correctionsAccount), customerEntry));
   }
 
   public Optional<PaymentId> payment() {
@@ -61,6 +83,11 @@ public record NewTransaction(
   /** The Transaction this one reverses, if it is a Reversing Correction. */
   public Optional<TransactionId> reverses() {
     return Optional.ofNullable(reversedTransaction);
+  }
+
+  /** The Correction Reason and note, if this Transaction is a Correction. */
+  public Optional<CorrectionDetails> correction() {
+    return Optional.ofNullable(correctionDetails);
   }
 
   private static Money total(List<Entry> entries, Side side) {

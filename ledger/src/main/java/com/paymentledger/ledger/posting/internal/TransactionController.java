@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.posting.internal;
 
+import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
@@ -38,6 +39,8 @@ class TransactionController {
       Instant bookingTime,
       @Nullable UUID paymentId,
       @Nullable UUID reversesTransactionId,
+      @Nullable String correctionReason,
+      @Nullable String correctionNote,
       List<EntryResponse> entries) {
 
     static TransactionResponse of(PostedTransaction transaction) {
@@ -47,6 +50,8 @@ class TransactionController {
           transaction.bookingTime(),
           transaction.payment().map(PaymentId::value).orElse(null),
           transaction.reverses().map(TransactionId::value).orElse(null),
+          transaction.correction().map(c -> c.reason().name()).orElse(null),
+          transaction.correction().map(CorrectionDetails::note).orElse(null),
           transaction.entries().stream().map(EntryResponse::of).toList());
     }
   }
