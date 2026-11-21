@@ -28,16 +28,27 @@ class CorrectionController {
   @PostMapping(path = "/{version}/corrections", version = "1")
   ResponseEntity<TransactionResponse> postCorrection(
       @RequestBody CorrectionRequest request, UriComponentsBuilder uri) {
+    CorrectionKind kind = request.kind();
+    if (kind == null) {
+      throw CorrectionProblems.validationFailed("A Correction needs a kind");
+    }
     CorrectionDetails details = details(request);
     PostedTransaction correction =
-        switch (request.kind()) {
-          case REVERSING ->
-              corrections.reverse(new TransactionId(request.transactionId()), details);
+        switch (kind) {
+          case REVERSING -> reverse(request, details);
           case ADJUSTMENT -> adjust(request, details);
         };
     return ResponseEntity.created(
             uri.path("/v1/transactions/{id}").buildAndExpand(correction.id().value()).toUri())
         .body(TransactionResponse.of(correction));
+  }
+
+  private PostedTransaction reverse(CorrectionRequest request, CorrectionDetails details) {
+    UUID transaction = request.transactionId();
+    if (transaction == null) {
+      throw CorrectionProblems.validationFailed("A Reversing Correction needs a transactionId");
+    }
+    return corrections.reverse(new TransactionId(transaction), details);
   }
 
   private PostedTransaction adjust(CorrectionRequest request, CorrectionDetails details) {
@@ -75,8 +86,8 @@ class CorrectionController {
 
   /** For an Adjustment, the direction is the side posted to the Customer Account. */
   record CorrectionRequest(
-      CorrectionKind kind,
-      UUID transactionId,
+      @Nullable CorrectionKind kind,
+      @Nullable UUID transactionId,
       @Nullable CorrectionReason reason,
       @Nullable String note,
       @Nullable UUID accountId,
