@@ -97,6 +97,7 @@ class LedgerDatabaseInvariantsTest {
     assertThatThrownBy(
             () -> transaction.executeWithoutResult(status -> jdbc.sql(statement).update()))
         .isInstanceOf(DataAccessException.class)
+        .rootCause()
         .hasMessageContaining("permission denied");
   }
 
