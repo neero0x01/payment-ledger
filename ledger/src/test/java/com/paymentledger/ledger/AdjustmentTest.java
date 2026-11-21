@@ -149,6 +149,11 @@ class AdjustmentTest {
   }
 
   @Test
+  void adjustment_of_an_internal_account_is_refused_as_validation_failed() {
+    expectValidationFailed(adjustment(ledger.funding(), "OTHER", 5_00, "CREDIT"));
+  }
+
+  @Test
   void adjustment_of_an_unknown_account_is_refused_as_not_found() {
     http.post()
         .uri("/v1/corrections")
