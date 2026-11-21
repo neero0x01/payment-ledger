@@ -33,7 +33,8 @@ class InsufficientFundsTest {
 
     assertThat(payment.status()).isEqualTo("COMPLETED");
     assertThat(payment.rejectionReason()).isNull();
-    assertThat(balancePenceOf(a)).isEqualTo(-50_00);
+    // £50.00 − £150.00. Spec Scenario 3 and #6 say −£50.00, which the arithmetic rules out.
+    assertThat(balancePenceOf(a)).isEqualTo(-100_00);
     assertThat(balancePenceOf(b)).isEqualTo(150_00);
   }
 
