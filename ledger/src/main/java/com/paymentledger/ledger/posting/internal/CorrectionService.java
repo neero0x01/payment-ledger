@@ -9,6 +9,7 @@ import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import org.springframework.dao.DuplicateKeyException;
@@ -37,10 +38,10 @@ class CorrectionService {
     Account account =
         accounts
             .find(customerAccount)
-            .orElseThrow(() ->
-                CorrectionProblems.notFound("No Account " + customerAccount.value() + " exists"));
+            .orElseThrow(
+                () -> Problem.notFound("No Account " + customerAccount.value() + " exists"));
     if (account.kind() != AccountKind.CUSTOMER) {
-      throw CorrectionProblems.validationFailed(
+      throw Problem.validationFailed(
           "An Adjustment moves money between a Customer Account and the Corrections Account");
     }
     TransactionId adjustment =
@@ -59,8 +60,7 @@ class CorrectionService {
     PostedTransaction mistake =
         posting
             .find(original)
-            .orElseThrow(() ->
-                CorrectionProblems.notFound("No Transaction " + original.value() + " exists"));
+            .orElseThrow(() -> Problem.notFound("No Transaction " + original.value() + " exists"));
     if (posting.isReversed(original)) {
       throw alreadyReversed(original);
     }
@@ -74,7 +74,7 @@ class CorrectionService {
   }
 
   private static RuntimeException alreadyReversed(TransactionId original) {
-    return CorrectionProblems.alreadyReversed(
+    return Problem.alreadyReversed(
         "Transaction " + original.value() + " has already been reversed");
   }
 }

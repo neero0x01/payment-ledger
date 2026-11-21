@@ -6,6 +6,7 @@ import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.internal.TransactionController.TransactionResponse;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.UUID;
@@ -30,7 +31,7 @@ class CorrectionController {
       @RequestBody CorrectionRequest request, UriComponentsBuilder uri) {
     CorrectionKind kind = request.kind();
     if (kind == null) {
-      throw CorrectionProblems.validationFailed("A Correction needs a kind");
+      throw Problem.validationFailed("A Correction needs a kind");
     }
     CorrectionDetails details = details(request);
     PostedTransaction correction =
@@ -46,7 +47,7 @@ class CorrectionController {
   private PostedTransaction reverse(CorrectionRequest request, CorrectionDetails details) {
     UUID transaction = request.transactionId();
     if (transaction == null) {
-      throw CorrectionProblems.validationFailed("A Reversing Correction needs a transactionId");
+      throw Problem.validationFailed("A Reversing Correction needs a transactionId");
     }
     return corrections.reverse(new TransactionId(transaction), details);
   }
@@ -56,25 +57,25 @@ class CorrectionController {
     Long amountPence = request.amountPence();
     Side direction = request.direction();
     if (account == null || amountPence == null || direction == null) {
-      throw CorrectionProblems.validationFailed(
+      throw Problem.validationFailed(
           "An Adjustment needs an accountId, an amountPence and a direction");
     }
-    if (amountPence <= 0) {
-      throw CorrectionProblems.validationFailed("The amount must be more than zero");
-    }
     return corrections.adjust(
-        new AccountId(account), direction, Money.ofPence(amountPence), details);
+        new AccountId(account),
+        direction,
+        Problem.requirePositive(Money.ofPence(amountPence)),
+        details);
   }
 
   /** Every Correction carries a Correction Reason and a note. */
   private static CorrectionDetails details(CorrectionRequest request) {
     CorrectionReason reason = request.reason();
     if (reason == null) {
-      throw CorrectionProblems.validationFailed("A Correction needs a Correction Reason");
+      throw Problem.validationFailed("A Correction needs a Correction Reason");
     }
     String note = request.note();
     if (note == null || note.isBlank()) {
-      throw CorrectionProblems.validationFailed("A Correction needs a note");
+      throw Problem.validationFailed("A Correction needs a note");
     }
     return new CorrectionDetails(reason, note);
   }

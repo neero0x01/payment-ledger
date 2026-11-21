@@ -10,6 +10,7 @@ import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import java.util.List;
 import java.util.Optional;
@@ -37,23 +38,20 @@ class PaymentService {
    */
   @Transactional
   Payment makeInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
-    if (!amount.isPositive()) {
-      throw PaymentProblems.validationFailed("The amount must be more than zero");
-    }
+    Problem.requirePositive(amount);
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
-      throw PaymentProblems.validationFailed("The amount must be at most £1,000,000.00");
+      throw Problem.validationFailed("The amount must be at most £1,000,000.00");
     }
     if (debtor.equals(payee)) {
-      throw PaymentProblems.validationFailed(
-          "The Payee must be a different Account from the payer");
+      throw Problem.validationFailed("The Payee must be a different Account from the payer");
     }
     Account payer =
         accounts
             .find(debtor)
-            .orElseThrow(() ->
-                PaymentProblems.notFound("No Account " + debtor.value() + " exists to pay from"));
+            .orElseThrow(
+                () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
     if (accounts.find(payee).isEmpty()) {
-      throw PaymentProblems.notFound("No Account " + payee.value() + " exists to pay");
+      throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
     Money balance = posting.balanceOf(debtor).orElseThrow();
