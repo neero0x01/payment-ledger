@@ -124,6 +124,31 @@ class InternalTransferTest {
     assertThat(balanceOf(b)).isEqualTo(new BalanceView(b.value(), 30_00));
   }
 
+  /** Scenario 1 [M3]. */
+  @Test
+  void paying_from_another_customers_account_is_forbidden_and_stores_nothing() {
+    RestTestClient ownerOfB = sessions.customerOwning(b);
+
+    ownerOfB
+        .post()
+        .uri("/v1/payments")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(transfer(a, b, 30_00))
+        .exchange()
+        .expectStatus()
+        .isForbidden()
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectHeader()
+        .doesNotExist("Location")
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/forbidden");
+
+    assertThat(balanceOf(a)).isEqualTo(new BalanceView(a.value(), 100_00));
+    assertThat(balanceOf(b)).isEqualTo(new BalanceView(b.value(), 0));
+  }
+
   private BalanceView balanceOf(AccountId account) {
     return operator
         .get()
