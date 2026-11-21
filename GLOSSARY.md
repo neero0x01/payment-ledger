@@ -147,7 +147,7 @@ A Transaction the ledger posts on its own after a Scheme Rejection, mirroring th
 _Avoid_: Refund, Correction, rollback
 
 **Correction**:
-A Transaction posted by an Operator to fix a mistake, linked to the Transaction it corrects. The original is never changed.
+A Transaction posted by an Operator to fix a mistake, linked to the Transaction it corrects, if any. A goodwill Adjustment corrects no Transaction. The original is never changed.
 _Avoid_: Amendment, edit, void
 
 **Reversing Correction**:
