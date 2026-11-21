@@ -73,6 +73,48 @@ class ReversingCorrectionTest {
     assertThat(balancePenceOf(b)).isZero();
   }
 
+  @Test
+  void second_reversal_of_the_same_transaction_is_refused_as_already_reversed() {
+    postReversingCorrection(mistake);
+
+    expectProblem(reversing(mistake), HttpStatus.CONFLICT, "/problems/already-reversed");
+
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+    assertThat(balancePenceOf(b)).isZero();
+  }
+
+  @Test
+  void reversing_a_correction_is_refused_once_the_correction_has_itself_been_reversed() {
+    UUID correction = postReversingCorrection(mistake).id();
+    postReversingCorrection(correction);
+
+    expectProblem(reversing(correction), HttpStatus.CONFLICT, "/problems/already-reversed");
+  }
+
+  @Test
+  void reversing_an_unknown_transaction_is_refused_as_not_found() {
+    expectProblem(reversing(UUID.randomUUID()), HttpStatus.NOT_FOUND, "/problems/not-found");
+  }
+
+  private void expectProblem(String body, HttpStatus status, String type) {
+    http.post()
+        .uri("/v1/corrections")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(body)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(status)
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectHeader()
+        .doesNotExist("Location")
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo(type)
+        .jsonPath("$.detail")
+        .isNotEmpty();
+  }
+
   private TransactionView postReversingCorrection(UUID transactionId) {
     TransactionView correction =
         http.post()
