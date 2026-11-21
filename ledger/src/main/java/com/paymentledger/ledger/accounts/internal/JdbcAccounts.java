@@ -1,0 +1,67 @@
+package com.paymentledger.ledger.accounts.internal;
+
+import com.paymentledger.ledger.accounts.Account;
+import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.Side;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.stereotype.Repository;
+
+@Repository
+class JdbcAccounts implements Accounts {
+
+  private final JdbcClient jdbc;
+
+  JdbcAccounts(JdbcClient jdbc) {
+    this.jdbc = jdbc;
+  }
+
+  @Override
+  public CustomerId registerCustomer(String displayName) {
+    UUID id =
+        jdbc.sql("insert into customer (display_name) values (:displayName) returning id")
+            .param("displayName", displayName)
+            .query(UUID.class)
+            .single();
+    return new CustomerId(id);
+  }
+
+  @Override
+  public AccountId openCustomerAccount(CustomerId owner, String name) {
+    UUID id =
+        jdbc.sql(
+                """
+                insert into account (kind, customer_id, name, normal_side)
+                values ('CUSTOMER', :customerId, :name, 'CREDIT')
+                returning id
+                """)
+            .param("customerId", owner.value())
+            .param("name", name)
+            .query(UUID.class)
+            .single();
+    return new AccountId(id);
+  }
+
+  @Override
+  public AccountId funding() {
+    UUID id =
+        jdbc.sql("select id from account where kind = 'INTERNAL' and name = 'Funding'")
+            .query(UUID.class)
+            .single();
+    return new AccountId(id);
+  }
+
+  @Override
+  public Optional<Account> find(AccountId id) {
+    return jdbc.sql("select id, normal_side from account where id = :id")
+        .param("id", id.value())
+        .query((rs, rowNum) ->
+            new Account(
+                new AccountId(rs.getObject("id", UUID.class)),
+                Side.valueOf(rs.getString("normal_side"))))
+        .optional();
+  }
+}

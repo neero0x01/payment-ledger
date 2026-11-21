@@ -1,0 +1,14 @@
+spring:
+  application:
+    name: ledger
+  datasource:
+    url: ${LEDGER_DB_URL:jdbc:postgresql://localhost:5432/ledger}
+    username: ${LEDGER_DB_USER:ledger}
+    password: ${LEDGER_DB_PASSWORD:ledger}
+  mvc:
+    apiversion:
+      use:
+        path-segment: 0
+      supported: "1"
+    problemdetails:
+      enabled: true

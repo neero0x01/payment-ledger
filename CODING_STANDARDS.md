@@ -12,7 +12,7 @@ These are judgement calls for code review. Formatting, type checks and bans that
 
 ## Java
 
-6. **Keep the domain plain Java.** No Spring, JDBC or persistence annotations in domain types. Map rows by hand in adapters. _Why:_ ADR 0001.
+6. **Map rows by hand in adapters.** Row mapping and SQL live in each module's `internal` package; ArchUnit keeps the domain types outside it plain Java. _Why:_ ADR 0001.
 7. **Give domain values their own types.** Use `Money` (never `long` pence or `BigDecimal` in signatures) and id types such as `AccountId` and `PaymentId` (never a bare `UUID`). _Why:_ swapped arguments become compile errors.
 8. **Never change Entries or Transactions.** Fix mistakes with a new Transaction (a Reversal or a Correction), and don't add code paths that update or delete these rows. _Why:_ the core invariant. The database role also enforces it.
 9. **Keep each money operation in one database transaction.** The Payment insert, balance locks, Entries, balance update and outbox rows commit together, so never call an external system in the middle. _Why:_ ADRs 0004, 0005 and 0007. No dual writes.
