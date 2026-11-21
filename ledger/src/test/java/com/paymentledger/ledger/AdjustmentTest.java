@@ -167,6 +167,63 @@ class AdjustmentTest {
         .isEqualTo("/problems/not-found");
   }
 
+  @Test
+  void correction_skips_the_funds_check_and_after_it_outbound_payments_are_rejected() {
+    AccountId overdrawn =
+        ledger.customerAccountWithBalance(Money.ofPence(20_00), Money.ofPence(10_00));
+    AccountId payee = ledger.customerAccountWithBalance(Money.ofPence(0));
+
+    postAdjustment(adjustment(overdrawn, "WRONG_AMOUNT", 50_00, "DEBIT"));
+
+    assertThat(balancePenceOf(overdrawn)).isEqualTo(-30_00);
+    PaymentView payment = makePayment(overdrawn, payee, 1);
+    assertThat(payment.status()).isEqualTo("REJECTED");
+    assertThat(payment.rejectionReason()).isEqualTo("INSUFFICIENT_FUNDS");
+    assertThat(balancePenceOf(overdrawn)).isEqualTo(-30_00);
+  }
+
+  @Test
+  void account_pushed_past_its_overdraft_limit_can_pay_out_again_once_funded() {
+    AccountId overdrawn =
+        ledger.customerAccountWithBalance(Money.ofPence(20_00), Money.ofPence(10_00));
+    AccountId payee = ledger.customerAccountWithBalance(Money.ofPence(0));
+    postAdjustment(adjustment(overdrawn, "WRONG_AMOUNT", 50_00, "DEBIT"));
+
+    postAdjustment(adjustment(overdrawn, "GOODWILL", 25_00, "CREDIT"));
+
+    assertThat(makePayment(overdrawn, payee, 5_00).status()).isEqualTo("COMPLETED");
+    assertThat(balancePenceOf(overdrawn)).isEqualTo(-10_00);
+  }
+
+  private static String adjustment(
+      AccountId account, String reason, long amountPence, String direction) {
+    return """
+    {"kind": "ADJUSTMENT", "reason": "%s", "note": "Operator note",
+     "accountId": "%s", "amountPence": %d, "direction": "%s"}
+    """
+        .formatted(reason, account.value(), amountPence, direction);
+  }
+
+  private PaymentView makePayment(AccountId from, AccountId to, long amountPence) {
+    PaymentView payment =
+        http.post()
+            .uri("/v1/payments")
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(
+                """
+                {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": %d}
+                """
+                    .formatted(from.value(), to.value(), amountPence))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(HttpStatus.CREATED)
+            .expectBody(PaymentView.class)
+            .returnResult()
+            .getResponseBody();
+    assertThat(payment).isNotNull();
+    return payment;
+  }
+
   private void expectValidationFailed(String body) {
     http.post()
         .uri("/v1/corrections")
@@ -241,6 +298,8 @@ class AdjustmentTest {
       List<EntryView> entries) {}
 
   record EntryView(UUID accountId, String side, long amountPence) {}
+
+  record PaymentView(UUID id, String status, @Nullable String rejectionReason) {}
 
   record BalanceView(UUID accountId, long balancePence) {}
 }
