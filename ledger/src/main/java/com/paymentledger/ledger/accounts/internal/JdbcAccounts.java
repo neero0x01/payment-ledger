@@ -1,6 +1,7 @@
 package com.paymentledger.ledger.accounts.internal;
 
 import com.paymentledger.ledger.accounts.Account;
+import com.paymentledger.ledger.accounts.AccountKind;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
@@ -71,11 +72,13 @@ class JdbcAccounts implements Accounts {
 
   @Override
   public Optional<Account> find(AccountId id) {
-    return jdbc.sql("select id, normal_side, overdraft_limit_pence from account where id = :id")
+    return jdbc.sql(
+            "select id, kind, normal_side, overdraft_limit_pence from account where id = :id")
         .param("id", id.value())
         .query((rs, rowNum) ->
             new Account(
                 new AccountId(rs.getObject("id", UUID.class)),
+                AccountKind.valueOf(rs.getString("kind")),
                 Side.valueOf(rs.getString("normal_side")),
                 Money.ofPence(rs.getLong("overdraft_limit_pence"))))
         .optional();

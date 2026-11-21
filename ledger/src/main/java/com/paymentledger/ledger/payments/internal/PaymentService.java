@@ -53,7 +53,7 @@ class PaymentService {
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
     Account payer = accounts.find(debtor).orElseThrow();
     Money balance = posting.balanceOf(debtor).orElseThrow();
-    if (amount.isGreaterThan(payer.availableBalance(balance))) {
+    if (!payer.canPayOut(amount, balance)) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
       return payments.find(id).orElseThrow();
     }
