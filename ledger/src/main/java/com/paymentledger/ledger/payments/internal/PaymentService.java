@@ -47,11 +47,15 @@ class PaymentService {
       throw PaymentProblems.validationFailed(
           "The Payee must be a different Account from the payer");
     }
+    Account payer =
+        accounts
+            .find(debtor)
+            .orElseThrow(() ->
+                PaymentProblems.notFound("No Account " + debtor.value() + " exists to pay from"));
     if (accounts.find(payee).isEmpty()) {
       throw PaymentProblems.notFound("No Account " + payee.value() + " exists to pay");
     }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
-    Account payer = accounts.find(debtor).orElseThrow();
     Money balance = posting.balanceOf(debtor).orElseThrow();
     if (!payer.canPayOut(amount, balance)) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
