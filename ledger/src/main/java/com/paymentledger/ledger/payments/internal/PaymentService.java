@@ -16,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class PaymentService {
 
+  static final Money MAXIMUM_AMOUNT = Money.ofPence(1_000_000_00);
+
   private final PaymentRepository payments;
   private final Posting posting;
 
@@ -31,6 +33,9 @@ class PaymentService {
   Payment makeInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
     if (!amount.isPositive()) {
       throw PaymentProblems.validationFailed("The amount must be more than zero");
+    }
+    if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
+      throw PaymentProblems.validationFailed("The amount must be at most £1,000,000.00");
     }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
     posting.post(

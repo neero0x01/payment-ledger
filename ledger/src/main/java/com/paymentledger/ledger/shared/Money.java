@@ -11,6 +11,10 @@ public record Money(long pence) {
     return pence > 0;
   }
 
+  public boolean isGreaterThan(Money other) {
+    return pence > other.pence;
+  }
+
   public Money negate() {
     return new Money(Math.negateExact(pence));
   }
