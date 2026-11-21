@@ -1,6 +1,7 @@
 package com.paymentledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assumptions.assumeThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
@@ -98,6 +99,19 @@ class InsufficientFundsTest {
     assertThat(stored.rejectionReason()).isEqualTo("INSUFFICIENT_FUNDS");
     assertThat(stored.amountPence()).isEqualTo(50_01);
     assertThat(stored.transactionIds()).isEmpty();
+  }
+
+  @Test
+  void internal_account_has_no_funds_check_and_pays_beyond_its_balance() {
+    AccountId funding = ledger.funding();
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    long beyondFundingBalance = balancePenceOf(funding) + 1_00;
+    assumeThat(beyondFundingBalance).isLessThanOrEqualTo(1_000_000_00);
+
+    PaymentView payment = makePayment(funding, b, beyondFundingBalance);
+
+    assertThat(payment.status()).isEqualTo("COMPLETED");
+    assertThat(balancePenceOf(b)).isEqualTo(beyondFundingBalance);
   }
 
   private PaymentView makePayment(AccountId from, AccountId to, long amountPence) {
