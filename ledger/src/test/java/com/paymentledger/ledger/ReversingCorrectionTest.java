@@ -105,6 +105,31 @@ class ReversingCorrectionTest {
   }
 
   @Test
+  void reversing_correction_without_a_transaction_id_is_refused_as_validation_failed() {
+    expectProblem(
+        """
+        {"kind": "REVERSING", "reason": "DUPLICATE_POSTING", "note": "Paid twice by mistake"}
+        """,
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+  }
+
+  @Test
+  void correction_without_a_kind_is_refused_as_validation_failed() {
+    expectProblem(
+        """
+        {"transactionId": "%s", "reason": "DUPLICATE_POSTING", "note": "Paid twice by mistake"}
+        """
+            .formatted(mistake),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+  }
+
+  @Test
   void reversing_correction_returns_balances_to_what_they_were_before_the_original() {
     postReversingCorrection(mistake);
 
