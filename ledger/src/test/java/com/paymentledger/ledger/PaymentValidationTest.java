@@ -49,6 +49,16 @@ class PaymentValidationTest {
     assertBalancesUnchanged();
   }
 
+  @Test
+  void rejects_an_amount_above_one_million_pounds_as_validation_failed_and_posts_nothing() {
+    expectProblem(
+        transfer(a.value(), b.value(), 1_000_000_01),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertBalancesUnchanged();
+  }
+
   private void expectProblem(String body, HttpStatus status, String type) {
     http.post()
         .uri("/v1/payments")
