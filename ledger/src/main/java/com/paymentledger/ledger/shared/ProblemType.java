@@ -4,7 +4,8 @@ import java.net.URI;
 
 /** The shared catalogue of RFC 9457 problem types. Clients branch on these stable type URIs. */
 public enum ProblemType {
-  VALIDATION_FAILED("validation-failed", "Validation failed");
+  VALIDATION_FAILED("validation-failed", "Validation failed"),
+  NOT_FOUND("not-found", "Not found");
 
   private final URI uri;
   private final String title;

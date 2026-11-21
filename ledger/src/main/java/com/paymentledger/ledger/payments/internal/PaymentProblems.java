@@ -14,6 +14,10 @@ final class PaymentProblems {
     return problem(HttpStatus.BAD_REQUEST, ProblemType.VALIDATION_FAILED, detail);
   }
 
+  static ErrorResponseException notFound(String detail) {
+    return problem(HttpStatus.NOT_FOUND, ProblemType.NOT_FOUND, detail);
+  }
+
   private static ErrorResponseException problem(
       HttpStatus status, ProblemType type, String detail) {
     ProblemDetail body = ProblemDetail.forStatusAndDetail(status, detail);

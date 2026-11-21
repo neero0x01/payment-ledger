@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.payments.internal;
 
+import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
@@ -20,10 +21,12 @@ class PaymentService {
 
   private final PaymentRepository payments;
   private final Posting posting;
+  private final Accounts accounts;
 
-  PaymentService(PaymentRepository payments, Posting posting) {
+  PaymentService(PaymentRepository payments, Posting posting, Accounts accounts) {
     this.payments = payments;
     this.posting = posting;
+    this.accounts = accounts;
   }
 
   /**
@@ -40,6 +43,9 @@ class PaymentService {
     if (debtor.equals(payee)) {
       throw PaymentProblems.validationFailed(
           "The Payee must be a different Account from the payer");
+    }
+    if (accounts.find(payee).isEmpty()) {
+      throw PaymentProblems.notFound("No Account " + payee.value() + " exists to pay");
     }
     PaymentId id = payments.insertPendingInternalTransfer(debtor, payee, amount);
     posting.post(
