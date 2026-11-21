@@ -47,7 +47,7 @@ class CorrectionService {
    * at most once; the unique index on the link settles two reversals that race.
    */
   @Transactional
-  PostedTransaction reverse(TransactionId original) {
+  PostedTransaction reverse(TransactionId original, CorrectionDetails correction) {
     PostedTransaction mistake =
         posting
             .find(original)
@@ -56,13 +56,13 @@ class CorrectionService {
     if (posting.isReversed(original)) {
       throw alreadyReversed(original);
     }
-    TransactionId correction;
+    TransactionId reversing;
     try {
-      correction = posting.post(NewTransaction.reversingCorrection(mistake));
+      reversing = posting.post(NewTransaction.reversingCorrection(mistake, correction));
     } catch (DuplicateKeyException raced) {
       throw alreadyReversed(original);
     }
-    return posting.find(correction).orElseThrow();
+    return posting.find(reversing).orElseThrow();
   }
 
   private static RuntimeException alreadyReversed(TransactionId original) {

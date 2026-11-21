@@ -48,12 +48,13 @@ public record NewTransaction(
    * A Reversing Correction of the original: its Entries mirrored with the sides swapped, linked to
    * the original, which is never changed.
    */
-  public static NewTransaction reversingCorrection(PostedTransaction original) {
+  public static NewTransaction reversingCorrection(
+      PostedTransaction original, CorrectionDetails correction) {
     return new NewTransaction(
         TransactionKind.CORRECTION,
         null,
         original.id(),
-        null,
+        Objects.requireNonNull(correction),
         original.entries().stream().map(Entry::mirrored).toList());
   }
 

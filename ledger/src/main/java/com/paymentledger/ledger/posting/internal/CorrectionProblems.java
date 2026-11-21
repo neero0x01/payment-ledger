@@ -10,6 +10,10 @@ final class CorrectionProblems {
 
   private CorrectionProblems() {}
 
+  static ErrorResponseException validationFailed(String detail) {
+    return problem(HttpStatus.BAD_REQUEST, ProblemType.VALIDATION_FAILED, detail);
+  }
+
   static ErrorResponseException notFound(String detail) {
     return problem(HttpStatus.NOT_FOUND, ProblemType.NOT_FOUND, detail);
   }

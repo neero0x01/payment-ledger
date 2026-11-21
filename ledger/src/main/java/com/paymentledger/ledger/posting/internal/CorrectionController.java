@@ -28,19 +28,34 @@ class CorrectionController {
   @PostMapping(path = "/{version}/corrections", version = "1")
   ResponseEntity<TransactionResponse> postCorrection(
       @RequestBody CorrectionRequest request, UriComponentsBuilder uri) {
+    CorrectionDetails details = details(request);
     PostedTransaction correction =
         switch (request.kind()) {
-          case REVERSING -> corrections.reverse(new TransactionId(request.transactionId()));
+          case REVERSING ->
+              corrections.reverse(new TransactionId(request.transactionId()), details);
           case ADJUSTMENT ->
               corrections.adjust(
                   new AccountId(request.accountId()),
                   request.direction(),
                   Money.ofPence(request.amountPence()),
-                  new CorrectionDetails(request.reason(), request.note()));
+                  details);
         };
     return ResponseEntity.created(
             uri.path("/v1/transactions/{id}").buildAndExpand(correction.id().value()).toUri())
         .body(TransactionResponse.of(correction));
+  }
+
+  /** Every Correction carries a Correction Reason and a note. */
+  private static CorrectionDetails details(CorrectionRequest request) {
+    CorrectionReason reason = request.reason();
+    if (reason == null) {
+      throw CorrectionProblems.validationFailed("A Correction needs a Correction Reason");
+    }
+    String note = request.note();
+    if (note == null || note.isBlank()) {
+      throw CorrectionProblems.validationFailed("A Correction needs a note");
+    }
+    return new CorrectionDetails(reason, note);
   }
 
   enum CorrectionKind {
@@ -52,8 +67,8 @@ class CorrectionController {
   record CorrectionRequest(
       CorrectionKind kind,
       UUID transactionId,
-      CorrectionReason reason,
-      String note,
+      @Nullable CorrectionReason reason,
+      @Nullable String note,
       UUID accountId,
       @Nullable Long amountPence,
       Side direction) {}
