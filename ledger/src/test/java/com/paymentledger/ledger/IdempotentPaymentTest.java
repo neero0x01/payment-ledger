@@ -1,0 +1,84 @@
+package com.paymentledger.ledger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.Money;
+import java.util.UUID;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.client.RestTestClient;
+
+/** Scenario 2: Idempotent retry [M3]. */
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@AutoConfigureRestTestClient
+@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
+class IdempotentPaymentTest {
+
+  @Autowired LedgerFixture ledger;
+  @Autowired Sessions sessions;
+
+  AccountId a;
+  AccountId b;
+  RestTestClient customer;
+  RestTestClient operator;
+
+  @BeforeEach
+  void givenAHas100PoundsAndBHasNothing() {
+    a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    customer = sessions.customerOwning(a);
+    operator = sessions.operator();
+  }
+
+  @Test
+  void a_payment_without_an_idempotency_key_is_refused_with_400_and_posts_nothing() {
+    customer
+        .post()
+        .uri("/v1/payments")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(transfer(a, b, 30_00))
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectHeader()
+        .doesNotExist("Location")
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/idempotency-key-missing");
+
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+    assertThat(balancePenceOf(b)).isZero();
+  }
+
+  private long balancePenceOf(AccountId account) {
+    BalanceView balance =
+        operator
+            .get()
+            .uri("/v1/accounts/{id}/balance", account.value())
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody(BalanceView.class)
+            .returnResult()
+            .getResponseBody();
+    assertThat(balance).isNotNull();
+    return balance.balancePence();
+  }
+
+  record BalanceView(UUID accountId, long balancePence) {}
+
+  private static String transfer(AccountId from, AccountId to, long amountPence) {
+    return """
+    {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": %d}
+    """
+        .formatted(from.value(), to.value(), amountPence);
+  }
+}
