@@ -32,6 +32,12 @@ spring:
       supported: "1"
     problemdetails:
       enabled: true
+management:
+  endpoints:
+    web:
+      exposure:
+        # Operators read the outbox lag and other gauges here (WebSecurity).
+        include: health, metrics
 server:
   servlet:
     session:
@@ -42,3 +48,6 @@ logging:
   level:
     # The Kafka clients log their whole configuration at INFO whenever one starts.
     org.apache.kafka: warn
+    # Logs every failed send, so a Kafka outage logs each outbox row of every retried batch; the
+    # outbox publisher logs one warning per failed batch instead.
+    org.springframework.kafka.support.LoggingProducerListener: off

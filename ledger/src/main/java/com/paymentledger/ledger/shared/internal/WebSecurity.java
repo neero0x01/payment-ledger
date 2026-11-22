@@ -43,6 +43,10 @@ class WebSecurity {
                 .hasRole(Role.OPERATOR.name())
                 .requestMatchers(HttpMethod.GET, "/v1/transactions/**")
                 .hasRole(Role.OPERATOR.name())
+                .requestMatchers(HttpMethod.GET, "/actuator/health")
+                .permitAll()
+                .requestMatchers("/actuator/**")
+                .hasRole(Role.OPERATOR.name())
                 .anyRequest()
                 .authenticated())
         .formLogin(login ->
