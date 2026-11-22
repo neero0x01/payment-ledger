@@ -34,7 +34,7 @@ public interface Posting {
   /**
    * The Account's As-At Balance: its balance_after at the latest Entry booked at or before the
    * moment, taking the highest entry_seq when Booking Times tie, or zero before its first Entry.
-   * Empty for an unknown Account.
+   * Empty for an unknown Account. Refuses a moment in the future as validation-failed.
    */
   Optional<Money> balanceOf(AccountId account, Instant asAt);
 

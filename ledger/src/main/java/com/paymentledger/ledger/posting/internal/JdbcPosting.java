@@ -15,6 +15,7 @@ import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.sql.Types;
@@ -240,6 +241,15 @@ class JdbcPosting implements Posting {
     if (accounts.find(account).isEmpty()) {
       return Optional.empty();
     }
+    OffsetDateTime moment = asAt.atOffset(ZoneOffset.UTC);
+    boolean inTheFuture =
+        jdbc.sql("select :asAt > clock_timestamp()")
+            .param("asAt", moment)
+            .query(Boolean.class)
+            .single();
+    if (inTheFuture) {
+      throw Problem.validationFailed("asAt " + asAt + " is in the future");
+    }
     long pence =
         jdbc.sql(
                 """
@@ -250,7 +260,7 @@ class JdbcPosting implements Posting {
                 limit 1
                 """)
             .param("accountId", account.value())
-            .param("asAt", asAt.atOffset(ZoneOffset.UTC))
+            .param("asAt", moment)
             .query(Long.class)
             .optional()
             .orElse(0L);
