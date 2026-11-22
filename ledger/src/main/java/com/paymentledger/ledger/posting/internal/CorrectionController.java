@@ -6,6 +6,7 @@ import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.internal.TransactionController.TransactionResponse;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.Principal;
@@ -25,10 +26,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 @RestController
 class CorrectionController {
 
-  static final String IDEMPOTENCY_KEY = "Idempotency-Key";
-
-  static final String IDEMPOTENT_REPLAYED = "Idempotent-Replayed";
-
   private final CorrectionService corrections;
 
   CorrectionController(CorrectionService corrections) {
@@ -38,7 +35,8 @@ class CorrectionController {
   @PostMapping(path = "/{version}/corrections", version = "1")
   ResponseEntity<TransactionResponse> postCorrection(
       @AuthenticationPrincipal Principal principal,
-      @RequestHeader(name = IDEMPOTENCY_KEY, required = false) @Nullable String idempotencyKey,
+      @RequestHeader(name = IdempotencyKey.HEADER, required = false)
+          @Nullable String idempotencyKey,
       @RequestBody CorrectionRequest request,
       UriComponentsBuilder uri) {
     OperatorId operator =
@@ -51,15 +49,15 @@ class CorrectionController {
       throw Problem.validationFailed("A Correction needs a kind");
     }
     CorrectionDetails details = details(request);
-    CorrectionService.Posted posted =
+    IdempotentOutcome<PostedTransaction> posted =
         switch (kind) {
           case REVERSING -> reverse(operator, key, request, details);
           case ADJUSTMENT -> adjust(operator, key, request, details);
         };
-    PostedTransaction correction = posted.correction();
+    PostedTransaction correction = posted.outcome();
     if (posted.replayed()) {
       return ResponseEntity.ok()
-          .header(IDEMPOTENT_REPLAYED, "true")
+          .header(IdempotentOutcome.REPLAYED_HEADER, "true")
           .body(TransactionResponse.of(correction));
     }
     return ResponseEntity.created(
@@ -67,7 +65,7 @@ class CorrectionController {
         .body(TransactionResponse.of(correction));
   }
 
-  private CorrectionService.Posted reverse(
+  private IdempotentOutcome<PostedTransaction> reverse(
       OperatorId operator,
       IdempotencyKey key,
       CorrectionRequest request,
@@ -79,7 +77,7 @@ class CorrectionController {
     return corrections.reverse(operator, key, new TransactionId(transaction), details);
   }
 
-  private CorrectionService.Posted adjust(
+  private IdempotentOutcome<PostedTransaction> adjust(
       OperatorId operator,
       IdempotencyKey key,
       CorrectionRequest request,

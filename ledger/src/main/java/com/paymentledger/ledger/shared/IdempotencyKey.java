@@ -9,6 +9,9 @@ import org.jspecify.annotations.Nullable;
  */
 public record IdempotencyKey(String value) {
 
+  /** The request header that carries the key. */
+  public static final String HEADER = "Idempotency-Key";
+
   public IdempotencyKey {
     Objects.requireNonNull(value, "value");
     if (value.isBlank()) {

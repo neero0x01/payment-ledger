@@ -8,6 +8,7 @@ import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.internal.JdbcPosting.KeyedCorrection;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.Problem;
@@ -37,15 +38,12 @@ class CorrectionService {
     this.accounts = accounts;
   }
 
-  /** The Correction a request posted, or the one it replayed because its key was used. */
-  record Posted(PostedTransaction correction, boolean replayed) {}
-
   /**
    * Posts an Adjustment of the amount to the Customer Account on the given side, against the
    * Corrections Account. Corrections skip the funds check.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
-  Posted adjust(
+  IdempotentOutcome<PostedTransaction> adjust(
       OperatorId operator,
       IdempotencyKey key,
       AccountId customerAccount,
@@ -71,7 +69,7 @@ class CorrectionService {
                 customerAccount.value().toString(),
                 side.name(),
                 Long.toString(amount.pence())));
-    Optional<Posted> replay = replay(keyed);
+    Optional<IdempotentOutcome<PostedTransaction>> replay = replay(keyed);
     if (replay.isPresent()) {
       return replay.get();
     }
@@ -86,7 +84,7 @@ class CorrectionService {
    * at most once; the unique index on the link settles two reversals that race.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
-  Posted reverse(
+  IdempotentOutcome<PostedTransaction> reverse(
       OperatorId operator,
       IdempotencyKey key,
       TransactionId original,
@@ -98,7 +96,7 @@ class CorrectionService {
     KeyedCorrection keyed =
         new KeyedCorrection(
             operator, key, requestHash(correction, "REVERSING", original.value().toString()));
-    Optional<Posted> replay = replay(keyed);
+    Optional<IdempotentOutcome<PostedTransaction>> replay = replay(keyed);
     if (replay.isPresent()) {
       return replay.get();
     }
@@ -113,21 +111,22 @@ class CorrectionService {
   }
 
   /** Posts the Correction, or replays the one a request with the same key posted meanwhile. */
-  private Posted postOnce(NewTransaction correction, KeyedCorrection keyed) {
+  private IdempotentOutcome<PostedTransaction> postOnce(
+      NewTransaction correction, KeyedCorrection keyed) {
     Optional<TransactionId> posted = posting.postOnce(correction, keyed);
     if (posted.isEmpty()) {
       return replay(keyed).orElseThrow();
     }
-    return new Posted(posting.find(posted.get()).orElseThrow(), false);
+    return IdempotentOutcome.first(posting.find(posted.get()).orElseThrow());
   }
 
   /** The Correction the Operator already posted with the key, unless a different request did. */
-  private Optional<Posted> replay(KeyedCorrection keyed) {
+  private Optional<IdempotentOutcome<PostedTransaction>> replay(KeyedCorrection keyed) {
     return posting
         .findByIdempotencyKey(keyed.operator(), keyed.key())
         .map(found -> {
           found.requestHash().requireSameRequest(keyed.requestHash(), "Correction");
-          return new Posted(posting.find(found.id()).orElseThrow(), true);
+          return IdempotentOutcome.replay(posting.find(found.id()).orElseThrow());
         });
   }
 

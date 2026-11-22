@@ -6,6 +6,7 @@ import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Principal;
@@ -29,9 +30,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 @RestController
 class PaymentController {
 
-  static final String IDEMPOTENCY_KEY = "Idempotency-Key";
-  static final String IDEMPOTENT_REPLAYED = "Idempotent-Replayed";
-
   private final PaymentService payments;
   private final Posting posting;
 
@@ -43,27 +41,29 @@ class PaymentController {
   @PostMapping(path = "/{version}/payments", version = "1")
   ResponseEntity<PaymentResponse> makePayment(
       @AuthenticationPrincipal Principal principal,
-      @RequestHeader(name = IDEMPOTENCY_KEY, required = false) @Nullable String idempotencyKey,
+      @RequestHeader(name = IdempotencyKey.HEADER, required = false)
+          @Nullable String idempotencyKey,
       @RequestBody PaymentRequest request,
       UriComponentsBuilder uri) {
     CustomerId customer =
         principal.customerId().orElseThrow(() -> Problem.forbidden("Only Customers make Payments"));
     IdempotencyKey key = IdempotencyKey.fromHeader(idempotencyKey);
-    PaymentService.Made made =
+    IdempotentOutcome<Payment> made =
         payments.makeInternalTransfer(
             customer,
             key,
             new AccountId(request.debtorAccountId()),
             new AccountId(request.payee().accountId()),
             Money.ofPence(request.amountPence()));
+    Payment payment = made.outcome();
     if (made.replayed()) {
       return ResponseEntity.ok()
-          .header(IDEMPOTENT_REPLAYED, "true")
-          .body(toResponse(made.payment()));
+          .header(IdempotentOutcome.REPLAYED_HEADER, "true")
+          .body(toResponse(payment));
     }
     return ResponseEntity.created(
-            uri.path("/v1/payments/{id}").buildAndExpand(made.payment().id().value()).toUri())
-        .body(toResponse(made.payment()));
+            uri.path("/v1/payments/{id}").buildAndExpand(payment.id().value()).toUri())
+        .body(toResponse(payment));
   }
 
   @GetMapping(path = "/{version}/payments/{id}", version = "1")

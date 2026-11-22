@@ -12,6 +12,7 @@ import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Principal;
@@ -41,9 +42,6 @@ class PaymentService {
     this.accounts = accounts;
   }
 
-  /** The Payment a request made, or the one it replayed because its Idempotency-Key was used. */
-  record Made(Payment payment, boolean replayed) {}
-
   /**
    * Checks the Customer owns the payer's Account, inserts the Payment, then either posts its
    * Transaction and completes it or, when the payer's funds don't cover it, Rejects it with
@@ -53,7 +51,7 @@ class PaymentService {
    * posted.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
-  Made makeInternalTransfer(
+  IdempotentOutcome<Payment> makeInternalTransfer(
       CustomerId customer, IdempotencyKey key, AccountId debtor, AccountId payee, Money amount) {
     Problem.requirePositive(amount);
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
@@ -91,20 +89,20 @@ class PaymentService {
     Money balance = Objects.requireNonNull(posting.lockBalances(Set.of(debtor, payee)).get(debtor));
     if (!payer.canPayOut(amount, balance)) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
-      return new Made(payments.find(id).orElseThrow(), false);
+      return IdempotentOutcome.first(payments.find(id).orElseThrow());
     }
     posting.post(
         NewTransaction.forPayment(
             id,
             List.of(new Entry(debtor, Side.DEBIT, amount), new Entry(payee, Side.CREDIT, amount))));
     payments.markCompleted(id);
-    return new Made(payments.find(id).orElseThrow(), false);
+    return IdempotentOutcome.first(payments.find(id).orElseThrow());
   }
 
   /** The Payment made with the key, unless it was made by a different request. */
-  private Made replay(PaymentMadeWithKey made, RequestHash sent) {
+  private IdempotentOutcome<Payment> replay(PaymentMadeWithKey made, RequestHash sent) {
     made.requestHash().requireSameRequest(sent, "Payment");
-    return new Made(payments.find(made.id()).orElseThrow(), true);
+    return IdempotentOutcome.replay(payments.find(made.id()).orElseThrow());
   }
 
   /** The Payment, if the Principal may see it: an Operator, or the owner of the payer's Account. */
