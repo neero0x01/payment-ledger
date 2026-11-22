@@ -57,6 +57,7 @@ class RolesTest {
         customer
             .post()
             .uri("/v1/corrections")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
             .contentType(MediaType.APPLICATION_JSON)
             .body(
                 """
