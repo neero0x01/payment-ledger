@@ -43,6 +43,7 @@ class InternalTransferTest {
     customer
         .post()
         .uri("/v1/payments")
+        .header("Idempotency-Key", UUID.randomUUID().toString())
         .contentType(MediaType.APPLICATION_JSON)
         .body(transfer(a, b, 30_00))
         .exchange()
@@ -91,6 +92,7 @@ class InternalTransferTest {
         customer
             .post()
             .uri("/v1/payments")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
             .contentType(MediaType.APPLICATION_JSON)
             .body(transfer(a, b, 30_00))
             .exchange()
@@ -132,6 +134,7 @@ class InternalTransferTest {
     ownerOfB
         .post()
         .uri("/v1/payments")
+        .header("Idempotency-Key", UUID.randomUUID().toString())
         .contentType(MediaType.APPLICATION_JSON)
         .body(transfer(a, b, 30_00))
         .exchange()
@@ -168,6 +171,7 @@ class InternalTransferTest {
         customer
             .post()
             .uri("/v1/payments")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
             .contentType(MediaType.APPLICATION_JSON)
             .body(transfer(from, to, amountPence))
             .exchange()

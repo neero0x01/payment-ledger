@@ -230,6 +230,7 @@ class ReversingCorrectionTest {
             .customerOwning(from)
             .post()
             .uri("/v1/payments")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
             .contentType(MediaType.APPLICATION_JSON)
             .body(
                 """

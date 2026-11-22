@@ -84,6 +84,7 @@ class InsufficientFundsTest {
         customer
             .post()
             .uri("/v1/payments")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
             .contentType(MediaType.APPLICATION_JSON)
             .body(payment(a, b, 50_01))
             .exchange()
@@ -144,6 +145,7 @@ class InsufficientFundsTest {
             .customerOwning(from)
             .post()
             .uri("/v1/payments")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
             .contentType(MediaType.APPLICATION_JSON)
             .body(payment(from, to, amountPence))
             .exchange()
