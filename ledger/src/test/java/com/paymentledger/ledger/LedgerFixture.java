@@ -108,27 +108,40 @@ public class LedgerFixture {
 
   private void insertBackdatedEntry(
       UUID transactionId, AccountId account, Side side, Money amount, OffsetDateTime bookedAt) {
+    // Funding and Customer Accounts both move up on these sides of their Normal Side.
+    BalanceRow after =
+        jdbc.sql(
+                """
+                insert into account_balance (account_id, balance_pence, last_entry_seq)
+                values (:accountId, :pence, 1)
+                on conflict (account_id) do update
+                set balance_pence = account_balance.balance_pence + excluded.balance_pence,
+                    last_entry_seq = account_balance.last_entry_seq + 1
+                returning balance_pence, last_entry_seq
+                """)
+            .param("accountId", account.value())
+            .param("pence", amount.pence())
+            .query((rs, rowNum) ->
+                new BalanceRow(rs.getLong("balance_pence"), rs.getLong("last_entry_seq")))
+            .single();
     jdbc.sql(
             """
-            insert into entry (transaction_id, account_id, side, amount_pence, booked_at)
-            values (:transactionId, :accountId, :side, :amountPence, :bookedAt)
+            insert into entry (
+                transaction_id, account_id, side, amount_pence, booked_at,
+                entry_seq, balance_after_pence)
+            values (
+                :transactionId, :accountId, :side, :amountPence, :bookedAt,
+                :entrySeq, :balanceAfterPence)
             """)
         .param("transactionId", transactionId)
         .param("accountId", account.value())
         .param("side", side.name())
         .param("amountPence", amount.pence())
         .param("bookedAt", bookedAt)
-        .update();
-    // Funding and Customer Accounts both move up on these sides of their Normal Side.
-    jdbc.sql(
-            """
-            insert into account_balance (account_id, balance_pence)
-            values (:accountId, :pence)
-            on conflict (account_id) do update
-            set balance_pence = account_balance.balance_pence + excluded.balance_pence
-            """)
-        .param("accountId", account.value())
-        .param("pence", amount.pence())
+        .param("entrySeq", after.lastEntrySeq())
+        .param("balanceAfterPence", after.balancePence())
         .update();
   }
+
+  private record BalanceRow(long balancePence, long lastEntrySeq) {}
 }

@@ -6,6 +6,7 @@ import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.CorrectionReason;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
+import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.posting.TransactionKind;
@@ -61,8 +62,7 @@ class JdbcPosting implements Posting {
             .query(UUID.class)
             .single();
     for (Entry entry : transaction.entries()) {
-      insertEntry(transactionId, entry);
-      applyToBalance(entry);
+      insertEntry(transactionId, entry, applyToBalance(entry));
     }
     return new TransactionId(transactionId);
   }
@@ -70,20 +70,23 @@ class JdbcPosting implements Posting {
   @Override
   @Transactional(readOnly = true)
   public Optional<PostedTransaction> find(TransactionId id) {
-    List<Entry> entries =
+    List<PostedEntry> entries =
         jdbc.sql(
                 """
-                select account_id, side, amount_pence
+                select account_id, side, amount_pence, entry_seq, balance_after_pence
                 from entry
                 where transaction_id = :id
                 order by id
                 """)
             .param("id", id.value())
             .query((rs, rowNum) ->
-                new Entry(
-                    new AccountId(rs.getObject("account_id", UUID.class)),
-                    Side.valueOf(rs.getString("side")),
-                    Money.ofPence(rs.getLong("amount_pence"))))
+                new PostedEntry(
+                    new Entry(
+                        new AccountId(rs.getObject("account_id", UUID.class)),
+                        Side.valueOf(rs.getString("side")),
+                        Money.ofPence(rs.getLong("amount_pence"))),
+                    rs.getLong("entry_seq"),
+                    Money.ofPence(rs.getLong("balance_after_pence"))))
             .list();
     return jdbc.sql(
             """
@@ -160,11 +163,13 @@ class JdbcPosting implements Posting {
         .toList();
   }
 
-  private void insertEntry(UUID transactionId, Entry entry) {
+  private void insertEntry(UUID transactionId, Entry entry, BalanceRow after) {
     jdbc.sql(
             """
-            insert into entry (transaction_id, account_id, side, amount_pence, booked_at)
-            select id, :accountId, :side, :amountPence, booked_at
+            insert into entry (
+                transaction_id, account_id, side, amount_pence, booked_at,
+                entry_seq, balance_after_pence)
+            select id, :accountId, :side, :amountPence, booked_at, :entrySeq, :balanceAfterPence
             from ledger_transaction
             where id = :transactionId
             """)
@@ -172,24 +177,35 @@ class JdbcPosting implements Posting {
         .param("accountId", entry.account().value())
         .param("side", entry.side().name())
         .param("amountPence", entry.amount().pence())
+        .param("entrySeq", after.lastEntrySeq())
+        .param("balanceAfterPence", after.balance().pence())
         .update();
   }
 
-  private void applyToBalance(Entry entry) {
+  /** Moves the Account's Balance by the Entry and hands out its next entry_seq. */
+  private BalanceRow applyToBalance(Entry entry) {
     Account account =
         accounts
             .find(entry.account())
             .orElseThrow(() -> new IllegalArgumentException("Unknown Account " + entry.account()));
-    jdbc.sql(
+    return jdbc.sql(
             """
-            insert into account_balance (account_id, balance_pence)
-            values (:accountId, :change)
+            insert into account_balance (account_id, balance_pence, last_entry_seq)
+            values (:accountId, :change, 1)
             on conflict (account_id) do update
             set balance_pence = account_balance.balance_pence + excluded.balance_pence,
+                last_entry_seq = account_balance.last_entry_seq + 1,
                 updated_at = clock_timestamp()
+            returning balance_pence, last_entry_seq
             """)
         .param("accountId", account.id().value())
         .param("change", entry.balanceChange(account.normalSide()).pence())
-        .update();
+        .query((rs, rowNum) ->
+            new BalanceRow(
+                Money.ofPence(rs.getLong("balance_pence")), rs.getLong("last_entry_seq")))
+        .single();
   }
+
+  /** An Account's balance row: its Balance and the last entry_seq handed out. */
+  private record BalanceRow(Money balance, long lastEntrySeq) {}
 }
