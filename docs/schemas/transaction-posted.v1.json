@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paymentledger.example/schemas/transaction-posted.v1.json",
+  "title": "TransactionPosted v1",
+  "description": "A Transaction posted to the ledger, on ledger.transaction-posted.v1 keyed by its Transaction id.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "type",
+    "schemaVersion",
+    "occurredAt",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique per event; consumers dedupe on it."
+    },
+    "type": {
+      "const": "TransactionPosted"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "The Transaction's Booking Time."
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "transactionId",
+        "kind",
+        "bookingTime",
+        "paymentId",
+        "reversesTransactionId",
+        "entries"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "transactionId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "kind": {
+          "enum": [
+            "PAYMENT",
+            "REVERSAL",
+            "CORRECTION",
+            "FUNDING"
+          ]
+        },
+        "bookingTime": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "paymentId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid",
+          "description": "The Payment the Transaction was posted for, if any."
+        },
+        "reversesTransactionId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid",
+          "description": "The Transaction this one reverses, if any."
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "accountId",
+              "side",
+              "amountPence",
+              "entrySeq",
+              "balanceAfterPence"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "accountId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "side": {
+                "enum": [
+                  "DEBIT",
+                  "CREDIT"
+                ]
+              },
+              "amountPence": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "entrySeq": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "The Entry's place in its Account's sequence."
+              },
+              "balanceAfterPence": {
+                "type": "integer",
+                "description": "The Account's Balance on its Normal Side just after the Entry."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

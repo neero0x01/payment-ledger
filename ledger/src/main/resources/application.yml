@@ -27,3 +27,7 @@ server:
       cookie:
         # The SPA and the API are the same site (spec §8).
         same-site: lax
+logging:
+  level:
+    # The Kafka clients log their whole configuration at INFO whenever one starts.
+    org.apache.kafka: warn
