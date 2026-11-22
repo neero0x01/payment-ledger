@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # The Idempotency-Key lives on the Payment row; the database serializes in-flight retries
+
+**Status: Accepted** in M3. The Payment is inserted with `on conflict (principal_id, idempotency_key) do nothing`: a concurrent retry waits on the unique index, inserts nothing once the first commits, and replays the stored Payment. That is the uniqueness violation below, handled in SQL rather than as an exception that would abort the transaction.
 
 The Idempotency-Key and a SHA-256 hash of the canonical request are columns on `payment`, with a unique index on `(principal_id, idempotency_key)`. The Payment is inserted **first** in the posting transaction, before any balance lock.
 
