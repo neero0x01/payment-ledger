@@ -18,7 +18,9 @@ import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.sql.Types;
+import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -226,6 +228,29 @@ class JdbcPosting implements Posting {
     long pence =
         jdbc.sql("select balance_pence from account_balance where account_id = :accountId")
             .param("accountId", account.value())
+            .query(Long.class)
+            .optional()
+            .orElse(0L);
+    return Optional.of(Money.ofPence(pence));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<Money> balanceOf(AccountId account, Instant asAt) {
+    if (accounts.find(account).isEmpty()) {
+      return Optional.empty();
+    }
+    long pence =
+        jdbc.sql(
+                """
+                select balance_after_pence
+                from entry
+                where account_id = :accountId and booked_at <= :asAt
+                order by booked_at desc, entry_seq desc
+                limit 1
+                """)
+            .param("accountId", account.value())
+            .param("asAt", asAt.atOffset(ZoneOffset.UTC))
             .query(Long.class)
             .optional()
             .orElse(0L);

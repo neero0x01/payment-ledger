@@ -4,6 +4,7 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -29,6 +30,13 @@ public interface Posting {
 
   /** The Account's Balance on its Normal Side, or empty for an unknown Account. */
   Optional<Money> balanceOf(AccountId account);
+
+  /**
+   * The Account's As-At Balance: its balance_after at the latest Entry booked at or before the
+   * moment, taking the highest entry_seq when Booking Times tie, or zero before its first Entry.
+   * Empty for an unknown Account.
+   */
+  Optional<Money> balanceOf(AccountId account, Instant asAt);
 
   /** The Transactions a Payment led to, oldest first. */
   List<TransactionId> transactionsOf(PaymentId payment);
