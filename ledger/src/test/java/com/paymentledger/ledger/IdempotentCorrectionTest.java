@@ -99,6 +99,36 @@ class IdempotentCorrectionTest {
     assertThat(balancePenceOf(b)).isZero();
   }
 
+  @Test
+  void the_same_key_with_a_different_body_is_refused_with_422_and_posts_nothing() {
+    String key = UUID.randomUUID().toString();
+    postCorrection(operator, key, goodwill(a, 5_00), HttpStatus.CREATED);
+
+    expectKeyReused(key, goodwill(a, 6_00));
+    expectKeyReused(key, goodwill(b, 5_00));
+    expectKeyReused(key, reversing(payAndReturnTransaction(a, b, 30_00)));
+
+    assertThat(balancePenceOf(a)).isEqualTo(75_00);
+    assertThat(balancePenceOf(b)).isEqualTo(30_00);
+  }
+
+  private void expectKeyReused(String key, String body) {
+    operator
+        .post()
+        .uri("/v1/corrections")
+        .header("Idempotency-Key", key)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(body)
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT)
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/idempotency-key-reused");
+  }
+
   private static TransactionView postCorrection(
       RestTestClient client, String key, String body, HttpStatus expected) {
     TransactionView correction =
