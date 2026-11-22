@@ -4,13 +4,17 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
@@ -56,6 +60,87 @@ class IdempotentCorrectionTest {
     assertThat(balancePenceOf(a)).isEqualTo(100_00);
   }
 
+  @Test
+  void the_same_key_and_body_again_replays_the_adjustment_with_200_and_posts_nothing_new() {
+    String key = UUID.randomUUID().toString();
+    TransactionView first = postCorrection(operator, key, goodwill(a, 5_00), HttpStatus.CREATED);
+
+    TransactionView replay =
+        operator
+            .post()
+            .uri("/v1/corrections")
+            .header("Idempotency-Key", key)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(goodwill(a, 5_00))
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .valueEquals("Idempotent-Replayed", "true")
+            .expectBody(TransactionView.class)
+            .returnResult()
+            .getResponseBody();
+
+    assertThat(replay).isEqualTo(first);
+    assertThat(balancePenceOf(a)).isEqualTo(105_00);
+  }
+
+  @Test
+  void the_same_key_and_body_again_replays_the_reversing_correction_instead_of_refusing_it() {
+    UUID mistake = payAndReturnTransaction(a, b, 30_00);
+    String key = UUID.randomUUID().toString();
+    TransactionView first = postCorrection(operator, key, reversing(mistake), HttpStatus.CREATED);
+
+    TransactionView replay = postCorrection(operator, key, reversing(mistake), HttpStatus.OK);
+
+    assertThat(replay).isEqualTo(first);
+    assertThat(replay.reversesTransactionId()).isEqualTo(mistake);
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+    assertThat(balancePenceOf(b)).isZero();
+  }
+
+  private static TransactionView postCorrection(
+      RestTestClient client, String key, String body, HttpStatus expected) {
+    TransactionView correction =
+        client
+            .post()
+            .uri("/v1/corrections")
+            .header("Idempotency-Key", key)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(body)
+            .exchange()
+            .expectStatus()
+            .isEqualTo(expected)
+            .expectBody(TransactionView.class)
+            .returnResult()
+            .getResponseBody();
+    assertThat(correction).isNotNull();
+    return correction;
+  }
+
+  private UUID payAndReturnTransaction(AccountId from, AccountId to, long amountPence) {
+    PaymentView payment =
+        sessions
+            .customerOwning(from)
+            .post()
+            .uri("/v1/payments")
+            .header("Idempotency-Key", UUID.randomUUID().toString())
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(
+                """
+                {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": %d}
+                """
+                    .formatted(from.value(), to.value(), amountPence))
+            .exchange()
+            .expectStatus()
+            .isEqualTo(HttpStatus.CREATED)
+            .expectBody(PaymentView.class)
+            .returnResult()
+            .getResponseBody();
+    assertThat(payment).isNotNull();
+    return payment.transactionIds().getFirst();
+  }
+
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
         operator
@@ -72,6 +157,27 @@ class IdempotentCorrectionTest {
   }
 
   record BalanceView(UUID accountId, long balancePence) {}
+
+  record PaymentView(UUID id, List<UUID> transactionIds) {}
+
+  record TransactionView(
+      UUID id,
+      String kind,
+      Instant bookingTime,
+      @Nullable UUID reversesTransactionId,
+      @Nullable String correctionReason,
+      @Nullable String correctionNote,
+      List<EntryView> entries) {}
+
+  record EntryView(UUID accountId, String side, long amountPence) {}
+
+  private static String reversing(UUID transactionId) {
+    return """
+    {"kind": "REVERSING", "transactionId": "%s", "reason": "DUPLICATE_POSTING",
+     "note": "Paid twice by mistake"}
+    """
+        .formatted(transactionId);
+  }
 
   private static String goodwill(AccountId account, long amountPence) {
     return """
