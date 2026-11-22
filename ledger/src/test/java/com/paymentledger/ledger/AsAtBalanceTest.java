@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,6 +49,29 @@ class AsAtBalanceTest {
     // Two Entries booked at the same moment: the one with the higher entry_seq wins.
     assertThat(balanceAsAt(operator, a, OCTOBER_10TH)).isEqualTo(75_00);
     assertThat(balanceAsAt(operator, a, OCTOBER_20TH)).isEqualTo(75_00);
+  }
+
+  @Test
+  void as_at_balance_before_the_first_entry_is_zero() {
+    ledger.fundingBookedAt(a, Money.ofPence(50_00), OCTOBER_10TH);
+
+    assertThat(balanceAsAt(operator, a, OCTOBER_5TH)).isZero();
+  }
+
+  @Test
+  void as_at_balance_in_the_future_is_refused_with_400() {
+    operator
+        .get()
+        .uri(
+            "/v1/accounts/{id}/balance?asAt={asAt}",
+            a.value(),
+            Instant.now().plus(Duration.ofDays(1)).toString())
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/validation-failed");
   }
 
   private static long balanceAsAt(RestTestClient client, AccountId account, Instant asAt) {
