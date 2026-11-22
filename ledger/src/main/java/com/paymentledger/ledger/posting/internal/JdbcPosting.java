@@ -5,15 +5,15 @@ import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.CorrectionReason;
 import com.paymentledger.ledger.posting.Entry;
+import com.paymentledger.ledger.posting.KeyedCorrection;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.posting.TransactionKind;
 import com.paymentledger.ledger.shared.AccountId;
-import com.paymentledger.ledger.shared.IdempotencyKey;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
-import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.RequestHash;
@@ -70,38 +70,39 @@ class JdbcPosting implements Posting {
     return postUnlessKeyUsed(transaction, null).orElseThrow();
   }
 
-  /** A Correction's Idempotency-Key, the Operator who sent it and the hash of its request. */
-  record KeyedCorrection(OperatorId operator, IdempotencyKey key, RequestHash requestHash) {}
+  @Override
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  public IdempotentOutcome<TransactionId> postCorrection(
+      NewTransaction correction, KeyedCorrection keyed) {
+    return postUnlessKeyUsed(correction, keyed)
+        .map(IdempotentOutcome::first)
+        .orElseGet(() -> IdempotentOutcome.replay(correctionPostedWith(keyed).orElseThrow()));
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<TransactionId> correctionPostedWith(KeyedCorrection keyed) {
+    Optional<CorrectionWithKey> found =
+        jdbc.sql(
+                """
+                select id, request_hash
+                from ledger_transaction
+                where principal_id = :principal and idempotency_key = :key
+                """)
+            .param("principal", keyed.operator().value())
+            .param("key", keyed.key().value())
+            .query((rs, rowNum) ->
+                new CorrectionWithKey(
+                    new TransactionId(rs.getObject("id", UUID.class)),
+                    new RequestHash(rs.getString("request_hash"))))
+            .optional();
+    found.ifPresent(correction ->
+        correction.requestHash().requireSameRequest(keyed.requestHash(), "Correction"));
+    return found.map(CorrectionWithKey::id);
+  }
 
   /** A Correction posted with an Idempotency-Key, and the hash of the request that posted it. */
-  record KeyedTransaction(TransactionId id, RequestHash requestHash) {}
-
-  /**
-   * Posts the Correction, or nothing when the Operator already posted one with the key. A retry
-   * still in flight blocks on the unique index until the first commits or rolls back.
-   */
-  @Transactional(isolation = Isolation.READ_COMMITTED)
-  Optional<TransactionId> postOnce(NewTransaction correction, KeyedCorrection keyed) {
-    return postUnlessKeyUsed(correction, keyed);
-  }
-
-  /** The Correction the Operator posted with this Idempotency-Key, if any. */
-  @Transactional(readOnly = true)
-  Optional<KeyedTransaction> findByIdempotencyKey(OperatorId operator, IdempotencyKey key) {
-    return jdbc.sql(
-            """
-            select id, request_hash
-            from ledger_transaction
-            where principal_id = :principal and idempotency_key = :key
-            """)
-        .param("principal", operator.value())
-        .param("key", key.value())
-        .query((rs, rowNum) ->
-            new KeyedTransaction(
-                new TransactionId(rs.getObject("id", UUID.class)),
-                new RequestHash(rs.getString("request_hash"))))
-        .optional();
-  }
+  private record CorrectionWithKey(TransactionId id, RequestHash requestHash) {}
 
   /**
    * Locks the balance rows first, then inserts the Transaction unless its Idempotency-Key was

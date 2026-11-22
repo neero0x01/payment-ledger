@@ -3,9 +3,10 @@ package com.paymentledger.ledger.posting.internal;
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.posting.CorrectionDetails;
+import com.paymentledger.ledger.posting.KeyedCorrection;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedTransaction;
-import com.paymentledger.ledger.posting.internal.JdbcPosting.KeyedCorrection;
+import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.IdempotentOutcome;
@@ -30,10 +31,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class CorrectionService {
 
-  private final JdbcPosting posting;
+  private final Posting posting;
   private final Accounts accounts;
 
-  CorrectionService(JdbcPosting posting, Accounts accounts) {
+  CorrectionService(Posting posting, Accounts accounts) {
     this.posting = posting;
     this.accounts = accounts;
   }
@@ -73,10 +74,12 @@ class CorrectionService {
     if (replay.isPresent()) {
       return replay.get();
     }
-    return postOnce(
-        NewTransaction.adjustment(
-            customerAccount, side, amount, accounts.corrections(), correction),
-        keyed);
+    return posting
+        .postCorrection(
+            NewTransaction.adjustment(
+                customerAccount, side, amount, accounts.corrections(), correction),
+            keyed)
+        .map(this::find);
   }
 
   /**
@@ -104,30 +107,21 @@ class CorrectionService {
       throw alreadyReversed(original);
     }
     try {
-      return postOnce(NewTransaction.reversingCorrection(mistake, correction), keyed);
+      return posting
+          .postCorrection(NewTransaction.reversingCorrection(mistake, correction), keyed)
+          .map(this::find);
     } catch (DuplicateKeyException raced) {
       throw alreadyReversed(original);
     }
   }
 
-  /** Posts the Correction, or replays the one a request with the same key posted meanwhile. */
-  private IdempotentOutcome<PostedTransaction> postOnce(
-      NewTransaction correction, KeyedCorrection keyed) {
-    Optional<TransactionId> posted = posting.postOnce(correction, keyed);
-    if (posted.isEmpty()) {
-      return replay(keyed).orElseThrow();
-    }
-    return IdempotentOutcome.first(posting.find(posted.get()).orElseThrow());
-  }
-
   /** The Correction the Operator already posted with the key, unless a different request did. */
   private Optional<IdempotentOutcome<PostedTransaction>> replay(KeyedCorrection keyed) {
-    return posting
-        .findByIdempotencyKey(keyed.operator(), keyed.key())
-        .map(found -> {
-          found.requestHash().requireSameRequest(keyed.requestHash(), "Correction");
-          return IdempotentOutcome.replay(posting.find(found.id()).orElseThrow());
-        });
+    return posting.correctionPostedWith(keyed).map(id -> IdempotentOutcome.replay(find(id)));
+  }
+
+  private PostedTransaction find(TransactionId posted) {
+    return posting.find(posted).orElseThrow();
   }
 
   private static RuntimeException alreadyReversed(TransactionId original) {

@@ -1,6 +1,7 @@
 package com.paymentledger.ledger.posting;
 
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
@@ -15,6 +16,19 @@ public interface Posting {
 
   /** Posts the Transaction, joining the caller's database transaction if there is one. */
   TransactionId post(NewTransaction transaction);
+
+  /**
+   * Posts the Correction once per Operator and Idempotency-Key. When a request with the same key
+   * posted one first, waits for it to commit and replays it instead, refusing a different request
+   * as idempotency-key-reused (ADR 0007). Joins the caller's database transaction.
+   */
+  IdempotentOutcome<TransactionId> postCorrection(NewTransaction correction, KeyedCorrection keyed);
+
+  /**
+   * The Correction the Operator already posted with the Idempotency-Key, or empty when the key is
+   * unused. Refuses a different request sent with a used key as idempotency-key-reused.
+   */
+  Optional<TransactionId> correctionPostedWith(KeyedCorrection keyed);
 
   /**
    * Locks the Accounts' balance rows, one at a time in ascending account id order, until the
