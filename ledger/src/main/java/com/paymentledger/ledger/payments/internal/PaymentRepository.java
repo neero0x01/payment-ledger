@@ -25,31 +25,35 @@ class PaymentRepository {
     this.jdbc = jdbc;
   }
 
-  PaymentId insertPendingInternalTransfer(
+  /**
+   * Inserts the Pending Payment, or nothing when the principal already made one with the key. A
+   * retry still in flight blocks on the unique index until the first commits or rolls back.
+   */
+  Optional<PaymentId> insertPendingInternalTransfer(
       CustomerId principal,
       IdempotencyKey key,
       String requestHash,
       AccountId debtor,
       AccountId payee,
       Money amount) {
-    UUID id =
-        jdbc.sql(
-                """
-                insert into payment (principal_id, idempotency_key, request_hash, type,
-                                     debtor_account_id, payee_account_id, amount_pence, status)
-                values (:principal, :key, :requestHash, 'INTERNAL_TRANSFER',
-                        :debtor, :payee, :amountPence, 'PENDING')
-                returning id
-                """)
-            .param("principal", principal.value())
-            .param("key", key.value())
-            .param("requestHash", requestHash)
-            .param("debtor", debtor.value())
-            .param("payee", payee.value())
-            .param("amountPence", amount.pence())
-            .query(UUID.class)
-            .single();
-    return new PaymentId(id);
+    return jdbc.sql(
+            """
+            insert into payment (principal_id, idempotency_key, request_hash, type,
+                                 debtor_account_id, payee_account_id, amount_pence, status)
+            values (:principal, :key, :requestHash, 'INTERNAL_TRANSFER',
+                    :debtor, :payee, :amountPence, 'PENDING')
+            on conflict (principal_id, idempotency_key) do nothing
+            returning id
+            """)
+        .param("principal", principal.value())
+        .param("key", key.value())
+        .param("requestHash", requestHash)
+        .param("debtor", debtor.value())
+        .param("payee", payee.value())
+        .param("amountPence", amount.pence())
+        .query(UUID.class)
+        .optional()
+        .map(PaymentId::new);
   }
 
   void markCompleted(PaymentId id) {

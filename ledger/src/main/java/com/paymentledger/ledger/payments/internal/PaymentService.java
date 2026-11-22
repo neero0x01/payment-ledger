@@ -71,12 +71,12 @@ class PaymentService {
       throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
     String requestHash = requestHash(debtor, payee, amount);
-    Optional<KeyedPayment> made = payments.findByIdempotencyKey(customer, key);
-    if (made.isPresent()) {
-      return replay(made.get(), requestHash);
-    }
-    PaymentId id =
+    Optional<PaymentId> inserted =
         payments.insertPendingInternalTransfer(customer, key, requestHash, debtor, payee, amount);
+    if (inserted.isEmpty()) {
+      return replay(payments.findByIdempotencyKey(customer, key).orElseThrow(), requestHash);
+    }
+    PaymentId id = inserted.get();
     Money balance = posting.balanceOf(debtor).orElseThrow();
     if (!payer.canPayOut(amount, balance)) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
