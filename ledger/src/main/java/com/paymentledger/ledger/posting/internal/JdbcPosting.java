@@ -106,7 +106,13 @@ class JdbcPosting implements Posting {
 
   /**
    * Locks the balance rows first, then inserts the Transaction unless its Idempotency-Key was
-   * already used; the locks are harmless when nothing is inserted.
+   * already used. The Booking Time is on the inserted row and must come from clock_timestamp()
+   * after the locks (ADR 0004), so a keyed Correction locks before its keyed insert, unlike a
+   * Payment (ADR 0007). A retry of a Correction in flight takes its locks before it reaches the
+   * unique index, in ascending account id order like every posting, so an identical retry queues
+   * behind the first request on their first shared row. A request it waits on at the index already
+   * holds all its locks and never waits back, so this can't deadlock. When nothing is inserted the
+   * locks are released at commit having changed nothing.
    */
   private Optional<TransactionId> postUnlessKeyUsed(
       NewTransaction transaction, @Nullable KeyedCorrection keyed) {
