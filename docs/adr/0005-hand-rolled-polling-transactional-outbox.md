@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # A hand-rolled polling transactional outbox
+
+**Status: Accepted** in M4. Posting appends a `TransactionPosted` row to the `outbox` table in the same database transaction as the Transaction, and the `outbox` module's publisher sends it to `ledger.transaction-posted.v1` as set out below. The Kafka-outage test proves it: with Kafka stopped, 100 Payments all return `201` and the lag gauge reaches 100; with Kafka restarted, the lag drains to 0. Payment status events follow when Payments change status.
 
 Events are written to an `outbox` table in the same database transaction as the Transaction or Payment change. A publisher inside the ledger works like this:
 

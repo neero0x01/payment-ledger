@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # JSON events with JSON Schema in the repo, no Schema Registry
+
+**Status: Accepted** in M4. `TransactionPosted` events are sent in the envelope below, `docs/schemas/transaction-posted.v1.json` describes them, and the producer's contract test validates every event it reads from Kafka against it. The consumer side's contract test arrives with the projector.
 
 Events are JSON in a shared envelope (`eventId`, `type`, `schemaVersion`, `occurredAt`, `payload`). JSON Schema files live in `docs/schemas/`, and contract tests on both the producer and consumer sides check against them. A breaking change means a new topic (`.v2`).
 
