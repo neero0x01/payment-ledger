@@ -88,6 +88,30 @@ class IdempotentPaymentTest {
     assertThat(balancePenceOf(b)).isEqualTo(30_00);
   }
 
+  @Test
+  void the_same_key_with_a_different_body_is_refused_with_422_and_posts_nothing() {
+    String key = UUID.randomUUID().toString();
+    makePayment(customer, key, transfer(a, b, 30_00), HttpStatus.CREATED);
+
+    customer
+        .post()
+        .uri("/v1/payments")
+        .header("Idempotency-Key", key)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(transfer(a, b, 40_00))
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT)
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/idempotency-key-reused");
+
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+    assertThat(balancePenceOf(b)).isEqualTo(30_00);
+  }
+
   private static PaymentView makePayment(
       RestTestClient client, String key, String body, HttpStatus expected) {
     PaymentView payment =
