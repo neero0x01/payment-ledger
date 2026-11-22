@@ -1,6 +1,7 @@
 package com.paymentledger.ledger.posting.internal;
 
 import com.paymentledger.ledger.posting.Entry;
+import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.PaymentId;
@@ -52,15 +53,21 @@ class TransactionController {
           transaction.reverses().map(TransactionId::value).orElse(null),
           correction.reason(),
           correction.note(),
-          transaction.entries().stream().map(EntryResponse::of).toList());
+          transaction.postedEntries().stream().map(EntryResponse::of).toList());
     }
   }
 
-  record EntryResponse(UUID accountId, String side, long amountPence) {
+  record EntryResponse(
+      UUID accountId, String side, long amountPence, long entrySeq, long balanceAfterPence) {
 
-    static EntryResponse of(Entry entry) {
+    static EntryResponse of(PostedEntry posted) {
+      Entry entry = posted.entry();
       return new EntryResponse(
-          entry.account().value(), entry.side().name(), entry.amount().pence());
+          entry.account().value(),
+          entry.side().name(),
+          entry.amount().pence(),
+          posted.entrySeq(),
+          posted.balanceAfter().pence());
     }
   }
 }

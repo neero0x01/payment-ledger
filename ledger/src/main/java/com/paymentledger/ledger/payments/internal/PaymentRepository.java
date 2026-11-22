@@ -5,8 +5,11 @@ import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.PaymentType;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.RequestHash;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Optional;
@@ -23,20 +26,38 @@ class PaymentRepository {
     this.jdbc = jdbc;
   }
 
-  PaymentId insertPendingInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
-    UUID id =
-        jdbc.sql(
-                """
-                insert into payment (type, debtor_account_id, payee_account_id, amount_pence, status)
-                values ('INTERNAL_TRANSFER', :debtor, :payee, :amountPence, 'PENDING')
-                returning id
-                """)
-            .param("debtor", debtor.value())
-            .param("payee", payee.value())
-            .param("amountPence", amount.pence())
-            .query(UUID.class)
-            .single();
-    return new PaymentId(id);
+  /** A Payment request's Idempotency-Key, the Customer who sent it and the hash of the request. */
+  record KeyedPayment(CustomerId customer, IdempotencyKey key, RequestHash requestHash) {}
+
+  /**
+   * The Payment a Customer made with an Idempotency-Key, and the hash of the request that made it.
+   */
+  record PaymentMadeWithKey(PaymentId id, RequestHash requestHash) {}
+
+  /**
+   * Inserts the Pending Payment, or nothing when the Customer already made one with the key. A
+   * retry still in flight blocks on the unique index until the first commits or rolls back.
+   */
+  Optional<PaymentId> insertPendingInternalTransfer(
+      KeyedPayment keyed, AccountId debtor, AccountId payee, Money amount) {
+    return jdbc.sql(
+            """
+            insert into payment (principal_id, idempotency_key, request_hash, type,
+                                 debtor_account_id, payee_account_id, amount_pence, status)
+            values (:principal, :key, :requestHash, 'INTERNAL_TRANSFER',
+                    :debtor, :payee, :amountPence, 'PENDING')
+            on conflict (principal_id, idempotency_key) do nothing
+            returning id
+            """)
+        .param("principal", keyed.customer().value())
+        .param("key", keyed.key().value())
+        .param("requestHash", keyed.requestHash().value())
+        .param("debtor", debtor.value())
+        .param("payee", payee.value())
+        .param("amountPence", amount.pence())
+        .query(UUID.class)
+        .optional()
+        .map(PaymentId::new);
   }
 
   void markCompleted(PaymentId id) {
@@ -72,6 +93,23 @@ class PaymentRepository {
             """)
         .param("id", id.value())
         .query(PaymentRepository::toPayment)
+        .optional();
+  }
+
+  /** The Payment the Customer made with this Idempotency-Key, if any. */
+  Optional<PaymentMadeWithKey> findByIdempotencyKey(KeyedPayment keyed) {
+    return jdbc.sql(
+            """
+            select id, request_hash
+            from payment
+            where principal_id = :principal and idempotency_key = :key
+            """)
+        .param("principal", keyed.customer().value())
+        .param("key", keyed.key().value())
+        .query((rs, rowNum) ->
+            new PaymentMadeWithKey(
+                new PaymentId(rs.getObject("id", UUID.class)),
+                new RequestHash(rs.getString("request_hash"))))
         .optional();
   }
 

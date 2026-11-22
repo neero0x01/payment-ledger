@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # Pessimistic, ordered row locks on a cached balance row; balance_after on every Entry
+
+**Status: Accepted** in M3. Posting locks balance rows in ascending account id order at READ COMMITTED, the funds check runs against the locked Balance, every Entry records `entry_seq` and `balance_after`, and the Scenario 4 concurrency suite proves it (its red run without locking is in the history).
 
 Every posting runs at READ COMMITTED and does three things:
 

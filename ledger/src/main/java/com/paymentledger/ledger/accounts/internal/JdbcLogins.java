@@ -2,6 +2,7 @@ package com.paymentledger.ledger.accounts.internal;
 
 import com.paymentledger.ledger.accounts.Logins;
 import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Role;
 import java.sql.Types;
@@ -37,7 +38,8 @@ class JdbcLogins implements Logins {
   }
 
   Optional<StoredLogin> find(String username) {
-    return jdbc.sql("select password_hash, role, customer_id from login where username = :username")
+    return jdbc.sql(
+            "select id, password_hash, role, customer_id from login where username = :username")
         .param("username", username)
         .query((rs, rowNum) -> {
           Role role = Role.valueOf(rs.getString("role"));
@@ -45,7 +47,7 @@ class JdbcLogins implements Logins {
           Principal principal =
               role == Role.CUSTOMER
                   ? Principal.customer(new CustomerId(customer))
-                  : Principal.operator();
+                  : Principal.operator(new OperatorId(rs.getObject("id", UUID.class)));
           return new StoredLogin(rs.getString("password_hash"), principal);
         })
         .optional();

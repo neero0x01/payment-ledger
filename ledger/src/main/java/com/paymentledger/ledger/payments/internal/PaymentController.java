@@ -5,6 +5,8 @@ import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.IdempotencyKey;
+import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Principal;
@@ -20,6 +22,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -38,16 +41,26 @@ class PaymentController {
   @PostMapping(path = "/{version}/payments", version = "1")
   ResponseEntity<PaymentResponse> makePayment(
       @AuthenticationPrincipal Principal principal,
+      @RequestHeader(name = IdempotencyKey.HEADER, required = false)
+          @Nullable String idempotencyKey,
       @RequestBody PaymentRequest request,
       UriComponentsBuilder uri) {
     CustomerId customer =
         principal.customerId().orElseThrow(() -> Problem.forbidden("Only Customers make Payments"));
-    Payment payment =
+    IdempotencyKey key = IdempotencyKey.fromHeader(idempotencyKey);
+    IdempotentOutcome<Payment> made =
         payments.makeInternalTransfer(
             customer,
+            key,
             new AccountId(request.debtorAccountId()),
             new AccountId(request.payee().accountId()),
             Money.ofPence(request.amountPence()));
+    Payment payment = made.outcome();
+    if (made.replayed()) {
+      return ResponseEntity.ok()
+          .header(IdempotentOutcome.REPLAYED_HEADER, "true")
+          .body(toResponse(payment));
+    }
     return ResponseEntity.created(
             uri.path("/v1/payments/{id}").buildAndExpand(payment.id().value()).toUri())
         .body(toResponse(payment));

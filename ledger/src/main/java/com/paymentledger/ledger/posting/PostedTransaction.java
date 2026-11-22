@@ -15,10 +15,15 @@ public record PostedTransaction(
     @Nullable PaymentId originatingPayment,
     @Nullable TransactionId reversedTransaction,
     @Nullable CorrectionDetails correctionDetails,
-    List<Entry> entries) {
+    List<PostedEntry> postedEntries) {
 
   public PostedTransaction {
-    entries = List.copyOf(entries);
+    postedEntries = List.copyOf(postedEntries);
+  }
+
+  /** The Transaction's Entries, without their place in each Account's sequence. */
+  public List<Entry> entries() {
+    return postedEntries.stream().map(PostedEntry::entry).toList();
   }
 
   public Optional<PaymentId> payment() {

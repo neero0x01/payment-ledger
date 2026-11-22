@@ -100,35 +100,81 @@ public class LedgerFixture {
               .param("bookedAt", bookedAt)
               .query(UUID.class)
               .single();
-      insertBackdatedEntry(id, accounts.funding(), Side.DEBIT, amount, bookedAt);
-      insertBackdatedEntry(id, account, Side.CREDIT, amount, bookedAt);
+      // Funding and Customer Accounts both move up on these sides of their Normal Side.
+      insertBackdatedEntry(id, accounts.funding(), Side.DEBIT, amount, amount, bookedAt);
+      insertBackdatedEntry(id, account, Side.CREDIT, amount, amount, bookedAt);
+      return new TransactionId(id);
+    });
+  }
+
+  /**
+   * Reverses a funding this fixture booked with a Reversing Correction booked at a past moment,
+   * written by hand like {@link #fundingBookedAt}.
+   */
+  public TransactionId reversalOfFundingBookedAt(
+      TransactionId funding, AccountId account, Money amount, Instant bookingTime) {
+    return transaction.execute(status -> {
+      OffsetDateTime bookedAt = bookingTime.atOffset(ZoneOffset.UTC);
+      UUID id =
+          jdbc.sql(
+                  """
+                  insert into ledger_transaction (
+                      kind, booked_at, reverses_transaction_id, correction_reason, correction_note)
+                  values ('CORRECTION', :bookedAt, :reverses, 'DUPLICATE_POSTING', 'Booked twice')
+                  returning id
+                  """)
+              .param("bookedAt", bookedAt)
+              .param("reverses", funding.value())
+              .query(UUID.class)
+              .single();
+      // Both Accounts move down on these sides of their Normal Side.
+      Money down = amount.negate();
+      insertBackdatedEntry(id, accounts.funding(), Side.CREDIT, amount, down, bookedAt);
+      insertBackdatedEntry(id, account, Side.DEBIT, amount, down, bookedAt);
       return new TransactionId(id);
     });
   }
 
   private void insertBackdatedEntry(
-      UUID transactionId, AccountId account, Side side, Money amount, OffsetDateTime bookedAt) {
+      UUID transactionId,
+      AccountId account,
+      Side side,
+      Money amount,
+      Money balanceChange,
+      OffsetDateTime bookedAt) {
+    BalanceRow after =
+        jdbc.sql(
+                """
+                insert into account_balance (account_id, balance_pence, last_entry_seq)
+                values (:accountId, :pence, 1)
+                on conflict (account_id) do update
+                set balance_pence = account_balance.balance_pence + excluded.balance_pence,
+                    last_entry_seq = account_balance.last_entry_seq + 1
+                returning balance_pence, last_entry_seq
+                """)
+            .param("accountId", account.value())
+            .param("pence", balanceChange.pence())
+            .query((rs, rowNum) ->
+                new BalanceRow(rs.getLong("balance_pence"), rs.getLong("last_entry_seq")))
+            .single();
     jdbc.sql(
             """
-            insert into entry (transaction_id, account_id, side, amount_pence, booked_at)
-            values (:transactionId, :accountId, :side, :amountPence, :bookedAt)
+            insert into entry (
+                transaction_id, account_id, side, amount_pence, booked_at,
+                entry_seq, balance_after_pence)
+            values (
+                :transactionId, :accountId, :side, :amountPence, :bookedAt,
+                :entrySeq, :balanceAfterPence)
             """)
         .param("transactionId", transactionId)
         .param("accountId", account.value())
         .param("side", side.name())
         .param("amountPence", amount.pence())
         .param("bookedAt", bookedAt)
-        .update();
-    // Funding and Customer Accounts both move up on these sides of their Normal Side.
-    jdbc.sql(
-            """
-            insert into account_balance (account_id, balance_pence)
-            values (:accountId, :pence)
-            on conflict (account_id) do update
-            set balance_pence = account_balance.balance_pence + excluded.balance_pence
-            """)
-        .param("accountId", account.value())
-        .param("pence", amount.pence())
+        .param("entrySeq", after.lastEntrySeq())
+        .param("balanceAfterPence", after.balancePence())
         .update();
   }
+
+  private record BalanceRow(long balancePence, long lastEntrySeq) {}
 }

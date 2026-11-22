@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # The Idempotency-Key lives on the Payment row; the database serializes in-flight retries
+
+**Status: Accepted** in M3. The Payment is inserted with `on conflict (principal_id, idempotency_key) do nothing`: a concurrent retry waits on the unique index, inserts nothing once the first commits, and replays the stored Payment. That is the uniqueness violation below, handled in SQL rather than as an exception that would abort the transaction.
 
 The Idempotency-Key and a SHA-256 hash of the canonical request are columns on `payment`, with a unique index on `(principal_id, idempotency_key)`. The Payment is inserted **first** in the posting transaction, before any balance lock.
 
@@ -13,6 +19,12 @@ The rest follows the IETF Idempotency-Key header draft:
 - A reused key with a different body gets `422`.
 - A replay returns the Payment's current state with `Idempotent-Replayed: true`.
 - Keys never expire, because they live as long as their Payment.
+
+## Corrections
+
+Corrections follow the same rules. The key, the Operator's id as `principal_id` and the request hash are columns on the Correction's own `ledger_transaction` row, with a partial unique index on `(principal_id, idempotency_key)`, and the row is inserted with the same `on conflict … do nothing`. A replay is looked up before the already-reversed check, so a retried Reversing Correction replays instead of answering `409`.
+
+One deviation: a Correction locks its balance rows **before** the keyed `ledger_transaction` insert, not after it as a Payment does. The Booking Time is a column on that same row, and ADR 0004 requires it to be read from `clock_timestamp()` only after the balance locks are held, so the keyed insert can't come first. A concurrent retry therefore takes balance locks before it reaches the unique index. It still can't deadlock: every posting takes its locks one at a time in ascending account id order and only waits on the unique index after it holds them all. An identical retry locks the same rows, so it queues behind the first request on the first of them and reaches the index after the first has committed or rolled back. A request that reuses the key for other Accounts may wait on the index while holding its own locks, but the request it waits for already holds every lock it needs and has inserted its row, so it never waits back.
 
 ## Considered options
 

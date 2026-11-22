@@ -126,11 +126,14 @@ class LedgerDatabaseInvariantsTest {
         .single();
   }
 
+  /** The guard under test ignores entry_seq and balance_after, so any valid values do. */
   private void insertEntry(UUID transactionId, AccountId account, String side, long pence) {
     jdbc.sql(
             """
-            insert into entry (transaction_id, account_id, side, amount_pence, booked_at)
-            values (:transactionId, :accountId, :side, :pence, clock_timestamp())
+            insert into entry (
+                transaction_id, account_id, side, amount_pence, booked_at,
+                entry_seq, balance_after_pence)
+            values (:transactionId, :accountId, :side, :pence, clock_timestamp(), 1, 0)
             """)
         .param("transactionId", transactionId)
         .param("accountId", account.value())
