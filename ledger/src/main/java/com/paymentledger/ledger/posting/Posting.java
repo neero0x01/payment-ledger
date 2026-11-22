@@ -5,13 +5,22 @@ import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Posts Transactions and keeps each Account's Balance. */
 public interface Posting {
 
   /** Posts the Transaction, joining the caller's database transaction if there is one. */
   TransactionId post(NewTransaction transaction);
+
+  /**
+   * Locks the Accounts' balance rows, one at a time in ascending account id order, until the
+   * caller's database transaction ends, and returns their Balances. Run a funds check against these
+   * before posting. Needs a database transaction already in progress.
+   */
+  Map<AccountId, Money> lockBalances(Set<AccountId> accounts);
 
   Optional<PostedTransaction> find(TransactionId id);
 

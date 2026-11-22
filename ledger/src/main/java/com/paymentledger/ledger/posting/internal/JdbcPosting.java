@@ -17,15 +17,33 @@ import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.sql.Types;
 import java.time.OffsetDateTime;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 class JdbcPosting implements Posting {
+
+  /** Postgres orders uuids by their bytes, as unsigned numbers. */
+  private static final Comparator<AccountId> IN_DATABASE_ORDER =
+      Comparator.comparing(
+          AccountId::value,
+          (UUID x, UUID y) -> {
+            int high = Long.compareUnsigned(x.getMostSignificantBits(), y.getMostSignificantBits());
+            return high != 0
+                ? high
+                : Long.compareUnsigned(x.getLeastSignificantBits(), y.getLeastSignificantBits());
+          });
 
   private final JdbcClient jdbc;
   private final Accounts accounts;
@@ -35,9 +53,14 @@ class JdbcPosting implements Posting {
     this.accounts = accounts;
   }
 
+  /**
+   * Locks the balance rows of every Account the Transaction touches before inserting it, so its
+   * Booking Time, read from clock_timestamp() below, comes after the locks (ADR 0004).
+   */
   @Override
-  @Transactional
+  @Transactional(isolation = Isolation.READ_COMMITTED)
   public TransactionId post(NewTransaction transaction) {
+    lockBalances(transaction.entries().stream().map(Entry::account).collect(Collectors.toSet()));
     CorrectionFields correction = CorrectionFields.of(transaction.correction());
     UUID transactionId =
         jdbc.sql(
@@ -65,6 +88,16 @@ class JdbcPosting implements Posting {
       insertEntry(transactionId, entry, applyToBalance(entry));
     }
     return new TransactionId(transactionId);
+  }
+
+  @Override
+  @Transactional(propagation = Propagation.MANDATORY)
+  public Map<AccountId, Money> lockBalances(Set<AccountId> accounts) {
+    Map<AccountId, Money> balances = new LinkedHashMap<>();
+    accounts.stream()
+        .sorted(IN_DATABASE_ORDER)
+        .forEach(account -> balances.put(account, lockBalance(account)));
+    return balances;
   }
 
   @Override
@@ -182,7 +215,39 @@ class JdbcPosting implements Posting {
         .update();
   }
 
-  /** Moves the Account's Balance by the Entry and hands out its next entry_seq. */
+  /**
+   * Locks the Account's balance row until the database transaction ends, first creating it at zero
+   * if the Account has never had an Entry, and returns its Balance.
+   */
+  private Money lockBalance(AccountId account) {
+    createBalanceRowIfMissing(account);
+    long pence =
+        jdbc.sql(
+                """
+                select balance_pence
+                from account_balance
+                where account_id = :accountId
+                for update
+                """)
+            .param("accountId", account.value())
+            .query(Long.class)
+            .single();
+    return Money.ofPence(pence);
+  }
+
+  /** A row inserted by a concurrent transaction makes this wait for it, then do nothing. */
+  private void createBalanceRowIfMissing(AccountId account) {
+    jdbc.sql(
+            """
+            insert into account_balance (account_id, balance_pence)
+            values (:accountId, 0)
+            on conflict (account_id) do nothing
+            """)
+        .param("accountId", account.value())
+        .update();
+  }
+
+  /** Moves the Account's locked Balance by the Entry and hands out its next entry_seq. */
   private BalanceRow applyToBalance(Entry entry) {
     Account account =
         accounts
@@ -190,12 +255,11 @@ class JdbcPosting implements Posting {
             .orElseThrow(() -> new IllegalArgumentException("Unknown Account " + entry.account()));
     return jdbc.sql(
             """
-            insert into account_balance (account_id, balance_pence, last_entry_seq)
-            values (:accountId, :change, 1)
-            on conflict (account_id) do update
-            set balance_pence = account_balance.balance_pence + excluded.balance_pence,
-                last_entry_seq = account_balance.last_entry_seq + 1,
+            update account_balance
+            set balance_pence = balance_pence + :change,
+                last_entry_seq = last_entry_seq + 1,
                 updated_at = clock_timestamp()
+            where account_id = :accountId
             returning balance_pence, last_entry_seq
             """)
         .param("accountId", account.id().value())

@@ -21,8 +21,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -46,10 +49,12 @@ class PaymentService {
   /**
    * Checks the Customer owns the payer's Account, inserts the Payment, then either posts its
    * Transaction and completes it or, when the payer's funds don't cover it, Rejects it with
-   * Insufficient Funds. All in one database transaction. A Payment the Customer already made with
-   * the Idempotency-Key is replayed as it is now, and nothing new is posted.
+   * Insufficient Funds. All in one database transaction, with the funds check run against the
+   * payer's locked Balance so that concurrent Payments can never overdraw it. A Payment the
+   * Customer already made with the Idempotency-Key is replayed as it is now, and nothing new is
+   * posted.
    */
-  @Transactional
+  @Transactional(isolation = Isolation.READ_COMMITTED)
   Made makeInternalTransfer(
       CustomerId customer, IdempotencyKey key, AccountId debtor, AccountId payee, Money amount) {
     Problem.requirePositive(amount);
@@ -77,7 +82,7 @@ class PaymentService {
       return replay(payments.findByIdempotencyKey(customer, key).orElseThrow(), requestHash);
     }
     PaymentId id = inserted.get();
-    Money balance = posting.balanceOf(debtor).orElseThrow();
+    Money balance = Objects.requireNonNull(posting.lockBalances(Set.of(debtor, payee)).get(debtor));
     if (!payer.canPayOut(amount, balance)) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
       return new Made(payments.find(id).orElseThrow(), false);
