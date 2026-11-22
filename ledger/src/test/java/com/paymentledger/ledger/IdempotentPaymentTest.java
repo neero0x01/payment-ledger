@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
@@ -58,6 +60,53 @@ class IdempotentPaymentTest {
     assertThat(balancePenceOf(b)).isZero();
   }
 
+  @Test
+  void the_same_key_and_body_again_replays_the_payment_with_200_and_posts_nothing_new() {
+    String key = UUID.randomUUID().toString();
+    PaymentView first = makePayment(customer, key, transfer(a, b, 30_00), HttpStatus.CREATED);
+
+    PaymentView replay =
+        customer
+            .post()
+            .uri("/v1/payments")
+            .header("Idempotency-Key", key)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(transfer(a, b, 30_00))
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectHeader()
+            .valueEquals("Idempotent-Replayed", "true")
+            .expectBody(PaymentView.class)
+            .returnResult()
+            .getResponseBody();
+
+    assertThat(replay).isEqualTo(first);
+    assertThat(replay.status()).isEqualTo("COMPLETED");
+    assertThat(replay.transactionIds()).hasSize(1);
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+    assertThat(balancePenceOf(b)).isEqualTo(30_00);
+  }
+
+  private static PaymentView makePayment(
+      RestTestClient client, String key, String body, HttpStatus expected) {
+    PaymentView payment =
+        client
+            .post()
+            .uri("/v1/payments")
+            .header("Idempotency-Key", key)
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(body)
+            .exchange()
+            .expectStatus()
+            .isEqualTo(expected)
+            .expectBody(PaymentView.class)
+            .returnResult()
+            .getResponseBody();
+    assertThat(payment).isNotNull();
+    return payment;
+  }
+
   private long balancePenceOf(AccountId account) {
     BalanceView balance =
         operator
@@ -74,6 +123,13 @@ class IdempotentPaymentTest {
   }
 
   record BalanceView(UUID accountId, long balancePence) {}
+
+  record PaymentView(
+      UUID id,
+      String status,
+      String rejectionReason,
+      long amountPence,
+      List<UUID> transactionIds) {}
 
   private static String transfer(AccountId from, AccountId to, long amountPence) {
     return """
