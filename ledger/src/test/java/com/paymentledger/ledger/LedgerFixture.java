@@ -32,6 +32,7 @@ public class LedgerFixture {
   private final JdbcClient jdbc;
   private final TransactionTemplate transaction;
   private final Map<AccountId, CustomerId> owners = new ConcurrentHashMap<>();
+  private final Map<AccountId, TransactionId> fundings = new ConcurrentHashMap<>();
 
   LedgerFixture(
       Accounts accounts, Posting posting, JdbcClient jdbc, TransactionTemplate transaction) {
@@ -65,13 +66,24 @@ public class LedgerFixture {
     AccountId account = accounts.openCustomerAccount(customer, "Main", overdraftLimit);
     owners.put(account, customer);
     if (balance.isPositive()) {
-      posting.post(
-          NewTransaction.funding(
-              List.of(
-                  new Entry(accounts.funding(), Side.DEBIT, balance),
-                  new Entry(account, Side.CREDIT, balance))));
+      TransactionId funding =
+          posting.post(
+              NewTransaction.funding(
+                  List.of(
+                      new Entry(accounts.funding(), Side.DEBIT, balance),
+                      new Entry(account, Side.CREDIT, balance))));
+      fundings.put(account, funding);
     }
     return account;
+  }
+
+  /** The Transaction that funded a Customer Account this fixture opened with a Balance. */
+  public TransactionId lastFundingOf(AccountId account) {
+    TransactionId funding = fundings.get(account);
+    if (funding == null) {
+      throw new IllegalArgumentException("This fixture did not fund Account " + account.value());
+    }
+    return funding;
   }
 
   /** The Customer who owns a Customer Account this fixture opened. */
