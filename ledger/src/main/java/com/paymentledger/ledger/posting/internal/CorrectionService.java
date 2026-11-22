@@ -123,11 +123,17 @@ class CorrectionService {
     return new Posted(posting.find(posted.get()).orElseThrow(), false);
   }
 
-  /** The Correction the Operator already posted with the key, if any. */
+  /** The Correction the Operator already posted with the key, unless a different request did. */
   private Optional<Posted> replay(KeyedCorrection keyed) {
     return posting
         .findByIdempotencyKey(keyed.operator(), keyed.key())
-        .map(found -> new Posted(posting.find(found.id()).orElseThrow(), true));
+        .map(found -> {
+          if (!found.requestHash().equals(keyed.requestHash())) {
+            throw Problem.idempotencyKeyReused(
+                "This Idempotency-Key was already used for a different Correction request");
+          }
+          return new Posted(posting.find(found.id()).orElseThrow(), true);
+        });
   }
 
   private static RuntimeException alreadyReversed(TransactionId original) {
