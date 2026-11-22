@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.TransactionId;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
@@ -72,6 +73,43 @@ class AsAtBalanceTest {
         .expectBody()
         .jsonPath("$.type")
         .isEqualTo("/problems/validation-failed");
+  }
+
+  /** Booking Time is the only timeline (ADR 0009): a later Correction leaves the past alone. */
+  @Test
+  void as_at_balance_between_an_error_and_its_correction_includes_the_error() {
+    ledger.fundingBookedAt(a, Money.ofPence(100_00), OCTOBER_1ST);
+    TransactionId error =
+        ledger.fundingBookedAt(a, Money.ofPence(30_00), Instant.parse("2026-10-30T12:00:00Z"));
+    ledger.reversalOfFundingBookedAt(
+        error, a, Money.ofPence(30_00), Instant.parse("2026-11-05T12:00:00Z"));
+
+    assertThat(balanceAsAt(operator, a, Instant.parse("2026-11-01T00:00:00Z"))).isEqualTo(130_00);
+    assertThat(balanceAsAt(operator, a, Instant.parse("2026-11-06T00:00:00Z"))).isEqualTo(100_00);
+  }
+
+  @Test
+  void customer_can_get_the_as_at_balance_of_their_own_account() {
+    ledger.fundingBookedAt(a, Money.ofPence(50_00), OCTOBER_1ST);
+
+    assertThat(balanceAsAt(sessions.customerOwning(a), a, OCTOBER_5TH)).isEqualTo(50_00);
+  }
+
+  @Test
+  void customer_getting_the_as_at_balance_of_another_customers_account_is_forbidden() {
+    ledger.fundingBookedAt(a, Money.ofPence(50_00), OCTOBER_1ST);
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+
+    sessions
+        .customerOwning(b)
+        .get()
+        .uri("/v1/accounts/{id}/balance?asAt={asAt}", a.value(), OCTOBER_5TH.toString())
+        .exchange()
+        .expectStatus()
+        .isForbidden()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/forbidden");
   }
 
   private static long balanceAsAt(RestTestClient client, AccountId account, Instant asAt) {
