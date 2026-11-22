@@ -4,8 +4,14 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.client.EntityExchangeResult;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 /** Scenario 2: Idempotent retry [M3]. */
@@ -112,6 +119,47 @@ class IdempotentPaymentTest {
     assertThat(balancePenceOf(b)).isEqualTo(30_00);
   }
 
+  @Test
+  void simultaneous_identical_requests_make_exactly_one_payment_that_every_response_describes()
+      throws Exception {
+    int rounds = 10;
+    int simultaneous = 4;
+    for (int round = 0; round < rounds; round++) {
+      String key = UUID.randomUUID().toString();
+      CyclicBarrier together = new CyclicBarrier(simultaneous);
+      List<Callable<EntityExchangeResult<PaymentIdView>>> requests = new ArrayList<>();
+      for (int i = 0; i < simultaneous; i++) {
+        requests.add(() -> {
+          together.await();
+          return customer
+              .post()
+              .uri("/v1/payments")
+              .header("Idempotency-Key", key)
+              .contentType(MediaType.APPLICATION_JSON)
+              .body(transfer(a, b, 1_00))
+              .exchange()
+              .expectBody(PaymentIdView.class)
+              .returnResult();
+        });
+      }
+      List<EntityExchangeResult<PaymentIdView>> responses = new ArrayList<>();
+      try (ExecutorService threads = Executors.newFixedThreadPool(simultaneous)) {
+        for (Future<EntityExchangeResult<PaymentIdView>> response : threads.invokeAll(requests)) {
+          responses.add(response.get());
+        }
+      }
+
+      assertThat(responses)
+          .extracting(response -> response.getStatus().value())
+          .containsExactlyInAnyOrder(201, 200, 200, 200);
+      assertThat(responses)
+          .extracting(response -> response.getResponseBody().id())
+          .containsOnly(responses.getFirst().getResponseBody().id());
+    }
+    assertThat(balancePenceOf(a)).isEqualTo(100_00 - rounds * 1_00);
+    assertThat(balancePenceOf(b)).isEqualTo(rounds * 1_00);
+  }
+
   private static PaymentView makePayment(
       RestTestClient client, String key, String body, HttpStatus expected) {
     PaymentView payment =
@@ -147,6 +195,9 @@ class IdempotentPaymentTest {
   }
 
   record BalanceView(UUID accountId, long balancePence) {}
+
+  /** Just the Payment's id, which any response that describes a Payment has. */
+  record PaymentIdView(UUID id) {}
 
   record PaymentView(
       UUID id,
