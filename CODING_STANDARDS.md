@@ -14,7 +14,7 @@ These are judgement calls for code review. Formatting, type checks and bans that
 
 6. **Map rows by hand in adapters.** Row mapping and SQL live in each module's `internal` package; ArchUnit keeps the domain types outside it plain Java. _Why:_ ADR 0001.
 7. **Give domain values their own types.** Use `Money` (never `long` pence or `BigDecimal` in signatures) and id types such as `AccountId` and `PaymentId` (never a bare `UUID`). _Why:_ swapped arguments become compile errors.
-8. **Never change Entries or Transactions.** Fix mistakes with a new Transaction (a Reversal or a Correction), and don't add code paths that update or delete these rows. _Why:_ the core invariant. The database role also enforces it.
+8. **Never change Entries or Transactions.** Fix mistakes with a new Transaction (a Reversal or a Correction); application code never updates or deletes these rows. A migration may backfill a new column on existing rows once, and says so in a comment. _Why:_ the core invariant. The database role also enforces it.
 9. **Keep each money operation in one database transaction.** The Payment insert, balance locks, Entries, balance update and outbox rows commit together, so never call an external system in the middle. _Why:_ ADRs 0004, 0005 and 0007. No dual writes.
 10. **Lock balance rows in ascending account id order,** one at a time, and read Booking Time only after the locks are held. _Why:_ ADR 0004, which rules out deadlocks and keeps `entry_seq` in the same order as Booking Time.
 11. **Write SQL by hand and keep it readable.** One statement per method, a text block when it spans several lines, named parameters, and no SQL assembled by string concatenation. _Why:_ the SQL that ships is the SQL we EXPLAIN.
