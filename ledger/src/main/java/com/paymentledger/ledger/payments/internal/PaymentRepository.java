@@ -5,6 +5,8 @@ import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.PaymentType;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import java.sql.ResultSet;
@@ -23,14 +25,25 @@ class PaymentRepository {
     this.jdbc = jdbc;
   }
 
-  PaymentId insertPendingInternalTransfer(AccountId debtor, AccountId payee, Money amount) {
+  PaymentId insertPendingInternalTransfer(
+      CustomerId principal,
+      IdempotencyKey key,
+      String requestHash,
+      AccountId debtor,
+      AccountId payee,
+      Money amount) {
     UUID id =
         jdbc.sql(
                 """
-                insert into payment (type, debtor_account_id, payee_account_id, amount_pence, status)
-                values ('INTERNAL_TRANSFER', :debtor, :payee, :amountPence, 'PENDING')
+                insert into payment (principal_id, idempotency_key, request_hash, type,
+                                     debtor_account_id, payee_account_id, amount_pence, status)
+                values (:principal, :key, :requestHash, 'INTERNAL_TRANSFER',
+                        :debtor, :payee, :amountPence, 'PENDING')
                 returning id
                 """)
+            .param("principal", principal.value())
+            .param("key", key.value())
+            .param("requestHash", requestHash)
             .param("debtor", debtor.value())
             .param("payee", payee.value())
             .param("amountPence", amount.pence())
@@ -72,6 +85,20 @@ class PaymentRepository {
             """)
         .param("id", id.value())
         .query(PaymentRepository::toPayment)
+        .optional();
+  }
+
+  /** The Payment the principal made with this Idempotency-Key, if any. */
+  Optional<PaymentId> findByIdempotencyKey(CustomerId principal, IdempotencyKey key) {
+    return jdbc.sql(
+            """
+            select id
+            from payment
+            where principal_id = :principal and idempotency_key = :key
+            """)
+        .param("principal", principal.value())
+        .param("key", key.value())
+        .query((rs, rowNum) -> new PaymentId(rs.getObject("id", UUID.class)))
         .optional();
   }
 

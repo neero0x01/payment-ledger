@@ -5,6 +5,7 @@ import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
+import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Principal;
@@ -29,6 +30,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 class PaymentController {
 
   static final String IDEMPOTENCY_KEY = "Idempotency-Key";
+  static final String IDEMPOTENT_REPLAYED = "Idempotent-Replayed";
 
   private final PaymentService payments;
   private final Posting posting;
@@ -46,18 +48,22 @@ class PaymentController {
       UriComponentsBuilder uri) {
     CustomerId customer =
         principal.customerId().orElseThrow(() -> Problem.forbidden("Only Customers make Payments"));
-    if (idempotencyKey == null || idempotencyKey.isBlank()) {
-      throw Problem.idempotencyKeyMissing("A Payment needs an Idempotency-Key header");
-    }
-    Payment payment =
+    IdempotencyKey key = IdempotencyKey.fromHeader(idempotencyKey);
+    PaymentService.Made made =
         payments.makeInternalTransfer(
             customer,
+            key,
             new AccountId(request.debtorAccountId()),
             new AccountId(request.payee().accountId()),
             Money.ofPence(request.amountPence()));
+    if (made.replayed()) {
+      return ResponseEntity.ok()
+          .header(IDEMPOTENT_REPLAYED, "true")
+          .body(toResponse(made.payment()));
+    }
     return ResponseEntity.created(
-            uri.path("/v1/payments/{id}").buildAndExpand(payment.id().value()).toUri())
-        .body(toResponse(payment));
+            uri.path("/v1/payments/{id}").buildAndExpand(made.payment().id().value()).toUri())
+        .body(toResponse(made.payment()));
   }
 
   @GetMapping(path = "/{version}/payments/{id}", version = "1")
