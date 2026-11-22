@@ -20,6 +20,10 @@ The rest follows the IETF Idempotency-Key header draft:
 - A replay returns the Payment's current state with `Idempotent-Replayed: true`.
 - Keys never expire, because they live as long as their Payment.
 
+## Corrections
+
+Corrections follow the same rules. The key, the Operator's id as `principal_id` and the request hash are columns on the Correction's own `ledger_transaction` row, with a partial unique index on `(principal_id, idempotency_key)`, and the row is inserted with the same `on conflict … do nothing`. A replay is looked up before the already-reversed check, so a retried Reversing Correction replays instead of answering `409`.
+
 ## Considered options
 
 - **A separate idempotency table with stored responses and a TTL**, as Stripe does: more moving parts, and it replays a stale snapshot instead of the current state.
