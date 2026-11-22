@@ -20,12 +20,15 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
 
 @RestController
 class PaymentController {
+
+  static final String IDEMPOTENCY_KEY = "Idempotency-Key";
 
   private final PaymentService payments;
   private final Posting posting;
@@ -38,10 +41,14 @@ class PaymentController {
   @PostMapping(path = "/{version}/payments", version = "1")
   ResponseEntity<PaymentResponse> makePayment(
       @AuthenticationPrincipal Principal principal,
+      @RequestHeader(name = IDEMPOTENCY_KEY, required = false) @Nullable String idempotencyKey,
       @RequestBody PaymentRequest request,
       UriComponentsBuilder uri) {
     CustomerId customer =
         principal.customerId().orElseThrow(() -> Problem.forbidden("Only Customers make Payments"));
+    if (idempotencyKey == null || idempotencyKey.isBlank()) {
+      throw Problem.idempotencyKeyMissing("A Payment needs an Idempotency-Key header");
+    }
     Payment payment =
         payments.makeInternalTransfer(
             customer,

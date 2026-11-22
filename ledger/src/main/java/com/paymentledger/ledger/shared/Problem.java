@@ -29,6 +29,11 @@ public final class Problem extends RuntimeException {
     return new Problem(ProblemType.ALREADY_REVERSED, detail);
   }
 
+  /** A request that must be safe to retry came without an Idempotency-Key header. */
+  public static Problem idempotencyKeyMissing(String detail) {
+    return new Problem(ProblemType.IDEMPOTENCY_KEY_MISSING, detail);
+  }
+
   /** The request has no session, or a login's credentials are wrong. */
   public static Problem unauthenticated(String detail) {
     return new Problem(ProblemType.UNAUTHENTICATED, detail);
