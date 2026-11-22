@@ -11,7 +11,9 @@ import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.posting.TransactionKind;
 import com.paymentledger.ledger.shared.AccountId;
+import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
@@ -25,6 +27,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import org.jspecify.annotations.Nullable;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -60,17 +63,62 @@ class JdbcPosting implements Posting {
   @Override
   @Transactional(isolation = Isolation.READ_COMMITTED)
   public TransactionId post(NewTransaction transaction) {
+    return postUnlessKeyUsed(transaction, null).orElseThrow();
+  }
+
+  /** A Correction's Idempotency-Key, the Operator who sent it and the hash of its request. */
+  record KeyedCorrection(OperatorId operator, IdempotencyKey key, String requestHash) {}
+
+  /** A Correction posted with an Idempotency-Key, and the hash of the request that posted it. */
+  record KeyedTransaction(TransactionId id, String requestHash) {}
+
+  /**
+   * Posts the Correction, or nothing when the Operator already posted one with the key. A retry
+   * still in flight blocks on the unique index until the first commits or rolls back.
+   */
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  Optional<TransactionId> postOnce(NewTransaction correction, KeyedCorrection keyed) {
+    return postUnlessKeyUsed(correction, keyed);
+  }
+
+  /** The Correction the Operator posted with this Idempotency-Key, if any. */
+  @Transactional(readOnly = true)
+  Optional<KeyedTransaction> findByIdempotencyKey(OperatorId operator, IdempotencyKey key) {
+    return jdbc.sql(
+            """
+            select id, request_hash
+            from ledger_transaction
+            where principal_id = :principal and idempotency_key = :key
+            """)
+        .param("principal", operator.value())
+        .param("key", key.value())
+        .query((rs, rowNum) ->
+            new KeyedTransaction(
+                new TransactionId(rs.getObject("id", UUID.class)), rs.getString("request_hash")))
+        .optional();
+  }
+
+  /**
+   * Locks the balance rows first, then inserts the Transaction unless its Idempotency-Key was
+   * already used; the locks are harmless when nothing is inserted.
+   */
+  private Optional<TransactionId> postUnlessKeyUsed(
+      NewTransaction transaction, @Nullable KeyedCorrection keyed) {
     lockBalances(transaction.entries().stream().map(Entry::account).collect(Collectors.toSet()));
     CorrectionFields correction = CorrectionFields.of(transaction.correction());
-    UUID transactionId =
+    Optional<UUID> inserted =
         jdbc.sql(
                 """
                 insert into ledger_transaction (
                     kind, booked_at, payment_id, reverses_transaction_id,
-                    correction_reason, correction_note)
+                    correction_reason, correction_note,
+                    principal_id, idempotency_key, request_hash)
                 values (
                     :kind, clock_timestamp(), :paymentId, :reversesTransactionId,
-                    :correctionReason, :correctionNote)
+                    :correctionReason, :correctionNote,
+                    :principal, :key, :requestHash)
+                on conflict (principal_id, idempotency_key) where idempotency_key is not null
+                do nothing
                 returning id
                 """)
             .param("kind", transaction.kind().name())
@@ -82,12 +130,19 @@ class JdbcPosting implements Posting {
                 Types.OTHER)
             .param("correctionReason", correction.reason(), Types.VARCHAR)
             .param("correctionNote", correction.note(), Types.VARCHAR)
+            .param("principal", keyed == null ? null : keyed.operator().value(), Types.OTHER)
+            .param("key", keyed == null ? null : keyed.key().value(), Types.VARCHAR)
+            .param("requestHash", keyed == null ? null : keyed.requestHash(), Types.VARCHAR)
             .query(UUID.class)
-            .single();
+            .optional();
+    if (inserted.isEmpty()) {
+      return Optional.empty();
+    }
+    UUID transactionId = inserted.get();
     for (Entry entry : transaction.entries()) {
       insertEntry(transactionId, entry, applyToBalance(entry));
     }
-    return new TransactionId(transactionId);
+    return Optional.of(new TransactionId(transactionId));
   }
 
   @Override
