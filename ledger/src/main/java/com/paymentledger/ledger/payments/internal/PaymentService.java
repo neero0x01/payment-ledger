@@ -5,6 +5,7 @@ import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.KeyedPayment;
+import com.paymentledger.ledger.payments.internal.PaymentRepository.PaymentMadeWithKey;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.Posting;
@@ -15,11 +16,8 @@ import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Problem;
+import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -75,11 +73,19 @@ class PaymentService {
     if (accounts.find(payee).isEmpty()) {
       throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
-    String requestHash = requestHash(debtor, payee, amount);
+    KeyedPayment keyed =
+        new KeyedPayment(
+            customer,
+            key,
+            RequestHash.of(
+                "INTERNAL_TRANSFER",
+                debtor.value().toString(),
+                payee.value().toString(),
+                Long.toString(amount.pence())));
     Optional<PaymentId> inserted =
-        payments.insertPendingInternalTransfer(customer, key, requestHash, debtor, payee, amount);
+        payments.insertPendingInternalTransfer(keyed, debtor, payee, amount);
     if (inserted.isEmpty()) {
-      return replay(payments.findByIdempotencyKey(customer, key).orElseThrow(), requestHash);
+      return replay(payments.findByIdempotencyKey(keyed).orElseThrow(), keyed.requestHash());
     }
     PaymentId id = inserted.get();
     Money balance = Objects.requireNonNull(posting.lockBalances(Set.of(debtor, payee)).get(debtor));
@@ -96,30 +102,9 @@ class PaymentService {
   }
 
   /** The Payment made with the key, unless it was made by a different request. */
-  private Made replay(KeyedPayment made, String requestHash) {
-    if (!made.requestHash().equals(requestHash)) {
-      throw Problem.idempotencyKeyReused(
-          "This Idempotency-Key was already used for a different Payment request");
-    }
+  private Made replay(PaymentMadeWithKey made, RequestHash sent) {
+    made.requestHash().requireSameRequest(sent, "Payment");
     return new Made(payments.find(made.id()).orElseThrow(), true);
-  }
-
-  /** The SHA-256 of the canonical Internal Transfer request, as hex. */
-  private static String requestHash(AccountId debtor, AccountId payee, Money amount) {
-    String canonical =
-        String.join(
-            "\n",
-            "INTERNAL_TRANSFER",
-            debtor.value().toString(),
-            payee.value().toString(),
-            Long.toString(amount.pence()));
-    try {
-      byte[] hash =
-          MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("Every Java platform has SHA-256", e);
-    }
   }
 
   /** The Payment, if the Principal may see it: an Operator, or the owner of the payer's Account. */

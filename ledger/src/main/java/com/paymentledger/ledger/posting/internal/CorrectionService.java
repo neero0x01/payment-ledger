@@ -11,12 +11,10 @@ import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.Problem;
+import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
+import java.util.Arrays;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -128,10 +126,7 @@ class CorrectionService {
     return posting
         .findByIdempotencyKey(keyed.operator(), keyed.key())
         .map(found -> {
-          if (!found.requestHash().equals(keyed.requestHash())) {
-            throw Problem.idempotencyKeyReused(
-                "This Idempotency-Key was already used for a different Correction request");
-          }
+          found.requestHash().requireSameRequest(keyed.requestHash(), "Correction");
           return new Posted(posting.find(found.id()).orElseThrow(), true);
         });
   }
@@ -141,16 +136,11 @@ class CorrectionService {
         "Transaction " + original.value() + " has already been reversed");
   }
 
-  /** The SHA-256 of the canonical Correction request, as hex; the free-text note comes last. */
-  private static String requestHash(CorrectionDetails correction, String... fields) {
-    String canonical =
-        String.join("\n", fields) + "\n" + correction.reason().name() + "\n" + correction.note();
-    try {
-      byte[] hash =
-          MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
-      return HexFormat.of().formatHex(hash);
-    } catch (NoSuchAlgorithmException e) {
-      throw new IllegalStateException("Every Java platform has SHA-256", e);
-    }
+  /** The hash of the canonical Correction request: its fields, then the free-text note last. */
+  private static RequestHash requestHash(CorrectionDetails correction, String... fields) {
+    String[] canonical = Arrays.copyOf(fields, fields.length + 2);
+    canonical[fields.length] = correction.reason().name();
+    canonical[fields.length + 1] = correction.note();
+    return RequestHash.of(canonical);
   }
 }

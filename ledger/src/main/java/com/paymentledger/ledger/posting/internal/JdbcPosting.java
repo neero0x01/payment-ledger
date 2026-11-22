@@ -16,6 +16,7 @@ import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.OperatorId;
 import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.Problem;
+import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.sql.Types;
@@ -70,10 +71,10 @@ class JdbcPosting implements Posting {
   }
 
   /** A Correction's Idempotency-Key, the Operator who sent it and the hash of its request. */
-  record KeyedCorrection(OperatorId operator, IdempotencyKey key, String requestHash) {}
+  record KeyedCorrection(OperatorId operator, IdempotencyKey key, RequestHash requestHash) {}
 
   /** A Correction posted with an Idempotency-Key, and the hash of the request that posted it. */
-  record KeyedTransaction(TransactionId id, String requestHash) {}
+  record KeyedTransaction(TransactionId id, RequestHash requestHash) {}
 
   /**
    * Posts the Correction, or nothing when the Operator already posted one with the key. A retry
@@ -97,7 +98,8 @@ class JdbcPosting implements Posting {
         .param("key", key.value())
         .query((rs, rowNum) ->
             new KeyedTransaction(
-                new TransactionId(rs.getObject("id", UUID.class)), rs.getString("request_hash")))
+                new TransactionId(rs.getObject("id", UUID.class)),
+                new RequestHash(rs.getString("request_hash"))))
         .optional();
   }
 
@@ -135,7 +137,7 @@ class JdbcPosting implements Posting {
             .param("correctionNote", correction.note(), Types.VARCHAR)
             .param("principal", keyed == null ? null : keyed.operator().value(), Types.OTHER)
             .param("key", keyed == null ? null : keyed.key().value(), Types.VARCHAR)
-            .param("requestHash", keyed == null ? null : keyed.requestHash(), Types.VARCHAR)
+            .param("requestHash", keyed == null ? null : keyed.requestHash().value(), Types.VARCHAR)
             .query(UUID.class)
             .optional();
     if (inserted.isEmpty()) {

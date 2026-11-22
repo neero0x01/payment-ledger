@@ -9,6 +9,7 @@ import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.PaymentId;
+import com.paymentledger.ledger.shared.RequestHash;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Optional;
@@ -25,17 +26,20 @@ class PaymentRepository {
     this.jdbc = jdbc;
   }
 
+  /** A Payment request's Idempotency-Key, the Customer who sent it and the hash of the request. */
+  record KeyedPayment(CustomerId customer, IdempotencyKey key, RequestHash requestHash) {}
+
   /**
-   * Inserts the Pending Payment, or nothing when the principal already made one with the key. A
+   * The Payment a Customer made with an Idempotency-Key, and the hash of the request that made it.
+   */
+  record PaymentMadeWithKey(PaymentId id, RequestHash requestHash) {}
+
+  /**
+   * Inserts the Pending Payment, or nothing when the Customer already made one with the key. A
    * retry still in flight blocks on the unique index until the first commits or rolls back.
    */
   Optional<PaymentId> insertPendingInternalTransfer(
-      CustomerId principal,
-      IdempotencyKey key,
-      String requestHash,
-      AccountId debtor,
-      AccountId payee,
-      Money amount) {
+      KeyedPayment keyed, AccountId debtor, AccountId payee, Money amount) {
     return jdbc.sql(
             """
             insert into payment (principal_id, idempotency_key, request_hash, type,
@@ -45,9 +49,9 @@ class PaymentRepository {
             on conflict (principal_id, idempotency_key) do nothing
             returning id
             """)
-        .param("principal", principal.value())
-        .param("key", key.value())
-        .param("requestHash", requestHash)
+        .param("principal", keyed.customer().value())
+        .param("key", keyed.key().value())
+        .param("requestHash", keyed.requestHash().value())
         .param("debtor", debtor.value())
         .param("payee", payee.value())
         .param("amountPence", amount.pence())
@@ -92,22 +96,20 @@ class PaymentRepository {
         .optional();
   }
 
-  /** A Payment made with an Idempotency-Key, and the hash of the request that made it. */
-  record KeyedPayment(PaymentId id, String requestHash) {}
-
-  /** The Payment the principal made with this Idempotency-Key, if any. */
-  Optional<KeyedPayment> findByIdempotencyKey(CustomerId principal, IdempotencyKey key) {
+  /** The Payment the Customer made with this Idempotency-Key, if any. */
+  Optional<PaymentMadeWithKey> findByIdempotencyKey(KeyedPayment keyed) {
     return jdbc.sql(
             """
             select id, request_hash
             from payment
             where principal_id = :principal and idempotency_key = :key
             """)
-        .param("principal", principal.value())
-        .param("key", key.value())
+        .param("principal", keyed.customer().value())
+        .param("key", keyed.key().value())
         .query((rs, rowNum) ->
-            new KeyedPayment(
-                new PaymentId(rs.getObject("id", UUID.class)), rs.getString("request_hash")))
+            new PaymentMadeWithKey(
+                new PaymentId(rs.getObject("id", UUID.class)),
+                new RequestHash(rs.getString("request_hash"))))
         .optional();
   }
 
