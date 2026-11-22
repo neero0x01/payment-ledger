@@ -2,6 +2,7 @@ package com.paymentledger.ledger.posting.internal;
 
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.CorrectionReason;
 import com.paymentledger.ledger.posting.Entry;
@@ -23,6 +24,7 @@ import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -54,10 +56,12 @@ class JdbcPosting implements Posting {
 
   private final JdbcClient jdbc;
   private final Accounts accounts;
+  private final Outbox outbox;
 
-  JdbcPosting(JdbcClient jdbc, Accounts accounts) {
+  JdbcPosting(JdbcClient jdbc, Accounts accounts, Outbox outbox) {
     this.jdbc = jdbc;
     this.accounts = accounts;
+    this.outbox = outbox;
   }
 
   /**
@@ -112,13 +116,14 @@ class JdbcPosting implements Posting {
    * unique index, in ascending account id order like every posting, so an identical retry queues
    * behind the first request on their first shared row. A request it waits on at the index already
    * holds all its locks and never waits back, so this can't deadlock. When nothing is inserted the
-   * locks are released at commit having changed nothing.
+   * locks are released at commit having changed nothing. A posted Transaction appends its
+   * TransactionPosted event to the outbox in the same database transaction (ADR 0005).
    */
   private Optional<TransactionId> postUnlessKeyUsed(
       NewTransaction transaction, @Nullable KeyedCorrection keyed) {
     lockBalances(transaction.entries().stream().map(Entry::account).collect(Collectors.toSet()));
     CorrectionFields correction = CorrectionFields.of(transaction.correction());
-    Optional<UUID> inserted =
+    Optional<InsertedTransaction> inserted =
         jdbc.sql(
                 """
                 insert into ledger_transaction (
@@ -131,7 +136,7 @@ class JdbcPosting implements Posting {
                     :principal, :key, :requestHash)
                 on conflict (principal_id, idempotency_key) where idempotency_key is not null
                 do nothing
-                returning id
+                returning id, booked_at
                 """)
             .param("kind", transaction.kind().name())
             .param(
@@ -145,17 +150,29 @@ class JdbcPosting implements Posting {
             .param("principal", keyed == null ? null : keyed.operator().value(), Types.OTHER)
             .param("key", keyed == null ? null : keyed.key().value(), Types.VARCHAR)
             .param("requestHash", keyed == null ? null : keyed.requestHash().value(), Types.VARCHAR)
-            .query(UUID.class)
+            .query((rs, rowNum) ->
+                new InsertedTransaction(
+                    new TransactionId(rs.getObject("id", UUID.class)),
+                    rs.getObject("booked_at", OffsetDateTime.class).toInstant()))
             .optional();
     if (inserted.isEmpty()) {
       return Optional.empty();
     }
-    UUID transactionId = inserted.get();
+    TransactionId transactionId = inserted.get().id();
+    List<PostedEntry> posted = new ArrayList<>();
     for (Entry entry : transaction.entries()) {
-      insertEntry(transactionId, entry, applyToBalance(entry));
+      BalanceRow after = applyToBalance(entry);
+      insertEntry(transactionId.value(), entry, after);
+      posted.add(new PostedEntry(entry, after.lastEntrySeq(), after.balance()));
     }
-    return Optional.of(new TransactionId(transactionId));
+    outbox.append(
+        TransactionPostedEvent.of(
+            transactionId, transaction, inserted.get().bookingTime(), posted));
+    return Optional.of(transactionId);
   }
+
+  /** A Transaction row just inserted, with the Booking Time the database gave it. */
+  private record InsertedTransaction(TransactionId id, Instant bookingTime) {}
 
   @Override
   @Transactional(propagation = Propagation.MANDATORY)
