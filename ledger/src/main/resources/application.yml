@@ -9,6 +9,17 @@ spring:
       # The application runs as ledger_app, which can only INSERT and SELECT Entries and
       # Transactions (V3__ledger_app_role.sql).
       connection-init-sql: set role ledger_app
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      # The idempotent producer with acks=all (ADR 0005). The timeouts make a send to a broker
+      # that is down fail within seconds, so the publisher retries the batch on a later poll.
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 5000
+        request.timeout.ms: 5000
+        delivery.timeout.ms: 10000
   flyway:
     # Setting a user gives Flyway its own connection, so migrations run as the schema owner
     # and not as ledger_app.
