@@ -88,17 +88,22 @@ class PaymentRepository {
         .optional();
   }
 
+  /** A Payment made with an Idempotency-Key, and the hash of the request that made it. */
+  record KeyedPayment(PaymentId id, String requestHash) {}
+
   /** The Payment the principal made with this Idempotency-Key, if any. */
-  Optional<PaymentId> findByIdempotencyKey(CustomerId principal, IdempotencyKey key) {
+  Optional<KeyedPayment> findByIdempotencyKey(CustomerId principal, IdempotencyKey key) {
     return jdbc.sql(
             """
-            select id
+            select id, request_hash
             from payment
             where principal_id = :principal and idempotency_key = :key
             """)
         .param("principal", principal.value())
         .param("key", key.value())
-        .query((rs, rowNum) -> new PaymentId(rs.getObject("id", UUID.class)))
+        .query((rs, rowNum) ->
+            new KeyedPayment(
+                new PaymentId(rs.getObject("id", UUID.class)), rs.getString("request_hash")))
         .optional();
   }
 

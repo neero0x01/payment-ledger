@@ -8,6 +8,7 @@ public enum ProblemType {
   NOT_FOUND("not-found", "Not found", 404),
   ALREADY_REVERSED("already-reversed", "Already reversed", 409),
   IDEMPOTENCY_KEY_MISSING("idempotency-key-missing", "Idempotency-Key missing", 400),
+  IDEMPOTENCY_KEY_REUSED("idempotency-key-reused", "Idempotency-Key reused", 422),
   UNAUTHENTICATED("unauthenticated", "Unauthenticated", 401),
   FORBIDDEN("forbidden", "Forbidden", 403);
 

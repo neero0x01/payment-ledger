@@ -4,6 +4,7 @@ import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.internal.PaymentRepository.KeyedPayment;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.Posting;
@@ -69,13 +70,13 @@ class PaymentService {
     if (accounts.find(payee).isEmpty()) {
       throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
-    Optional<PaymentId> made = payments.findByIdempotencyKey(customer, key);
+    String requestHash = requestHash(debtor, payee, amount);
+    Optional<KeyedPayment> made = payments.findByIdempotencyKey(customer, key);
     if (made.isPresent()) {
-      return new Made(payments.find(made.get()).orElseThrow(), true);
+      return replay(made.get(), requestHash);
     }
     PaymentId id =
-        payments.insertPendingInternalTransfer(
-            customer, key, requestHash(debtor, payee, amount), debtor, payee, amount);
+        payments.insertPendingInternalTransfer(customer, key, requestHash, debtor, payee, amount);
     Money balance = posting.balanceOf(debtor).orElseThrow();
     if (!payer.canPayOut(amount, balance)) {
       payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
@@ -87,6 +88,15 @@ class PaymentService {
             List.of(new Entry(debtor, Side.DEBIT, amount), new Entry(payee, Side.CREDIT, amount))));
     payments.markCompleted(id);
     return new Made(payments.find(id).orElseThrow(), false);
+  }
+
+  /** The Payment made with the key, unless it was made by a different request. */
+  private Made replay(KeyedPayment made, String requestHash) {
+    if (!made.requestHash().equals(requestHash)) {
+      throw Problem.idempotencyKeyReused(
+          "This Idempotency-Key was already used for a different Payment request");
+    }
+    return new Made(payments.find(made.id()).orElseThrow(), true);
   }
 
   /** The SHA-256 of the canonical Internal Transfer request, as hex. */
