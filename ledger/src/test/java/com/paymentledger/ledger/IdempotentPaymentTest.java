@@ -160,6 +160,64 @@ class IdempotentPaymentTest {
     assertThat(balancePenceOf(b)).isEqualTo(rounds * 1_00);
   }
 
+  @Test
+  void a_rejected_payment_replays_as_rejected_after_the_account_is_funded_and_posts_nothing() {
+    String key = UUID.randomUUID().toString();
+    PaymentView rejected = makePayment(customer, key, transfer(a, b, 150_00), HttpStatus.CREATED);
+    assertThat(rejected.status()).isEqualTo("REJECTED");
+    AccountId c = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    makePayment(
+        sessions.customerOwning(c),
+        UUID.randomUUID().toString(),
+        transfer(c, a, 100_00),
+        HttpStatus.CREATED);
+
+    PaymentView replay = makePayment(customer, key, transfer(a, b, 150_00), HttpStatus.OK);
+
+    assertThat(replay).isEqualTo(rejected);
+    assertThat(replay.rejectionReason()).isEqualTo("INSUFFICIENT_FUNDS");
+    assertThat(replay.transactionIds()).isEmpty();
+    assertThat(balancePenceOf(a)).isEqualTo(200_00);
+    assertThat(balancePenceOf(b)).isZero();
+  }
+
+  @Test
+  void a_validation_error_does_not_use_up_the_key() {
+    String key = UUID.randomUUID().toString();
+    customer
+        .post()
+        .uri("/v1/payments")
+        .header("Idempotency-Key", key)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(transfer(a, b, 0))
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/validation-failed");
+
+    PaymentView payment = makePayment(customer, key, transfer(a, b, 30_00), HttpStatus.CREATED);
+
+    assertThat(payment.status()).isEqualTo("COMPLETED");
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+  }
+
+  @Test
+  void different_customers_sending_the_same_key_make_independent_payments() {
+    AccountId c = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    String key = UUID.randomUUID().toString();
+
+    PaymentView fromA = makePayment(customer, key, transfer(a, b, 30_00), HttpStatus.CREATED);
+    PaymentView fromC =
+        makePayment(sessions.customerOwning(c), key, transfer(c, b, 30_00), HttpStatus.CREATED);
+
+    assertThat(fromC.id()).isNotEqualTo(fromA.id());
+    assertThat(balancePenceOf(a)).isEqualTo(70_00);
+    assertThat(balancePenceOf(c)).isEqualTo(70_00);
+    assertThat(balancePenceOf(b)).isEqualTo(60_00);
+  }
+
   private static PaymentView makePayment(
       RestTestClient client, String key, String body, HttpStatus expected) {
     PaymentView payment =
