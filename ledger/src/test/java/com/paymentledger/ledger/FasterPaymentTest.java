@@ -242,6 +242,30 @@ class FasterPaymentTest {
   }
 
   @Test
+  void faster_payment_failing_the_funds_check_is_rejected_and_never_submitted() {
+    PaymentView rejected = makeFasterPayment(100_01);
+
+    assertThat(rejected.status()).isEqualTo("REJECTED");
+    assertThat(rejected.rejectionReason()).isEqualTo("INSUFFICIENT_FUNDS");
+    assertThat(rejected.transactionIds()).isEmpty();
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+
+    // A later Faster Payment is submitted, and the Rejected one still never is.
+    String laterPayee = randomAccountNumber();
+    customer
+        .post()
+        .uri("/v1/payments")
+        .header("Idempotency-Key", UUID.randomUUID().toString())
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(fasterPayment(a, laterPayee, 10_00))
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.CREATED);
+    scheme.awaitSubmissionTo(laterPayee);
+    assertThat(scheme.submissionsTo(payeeAccountNumber)).isEmpty();
+  }
+
+  @Test
   void faster_payment_to_a_malformed_sort_code_is_refused_with_400_and_stores_nothing() {
     customer
         .post()
