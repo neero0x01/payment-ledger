@@ -25,6 +25,12 @@ spring:
     # and not as ledger_app.
     user: ${LEDGER_DB_USER:ledger}
     password: ${LEDGER_DB_PASSWORD:ledger}
+  task:
+    scheduling:
+      pool:
+        # The outbox publisher polls every 200 ms; the balanced check gets its own thread so a
+        # long run never holds up publishing.
+        size: 2
   mvc:
     apiversion:
       use:
@@ -39,6 +45,9 @@ management:
         # Operators read the outbox lag and other gauges here (WebSecurity).
         include: health, metrics
 ledger:
+  balanced-check:
+    # How often the balanced check proves the ledger balanced (spec §13).
+    interval: PT60S
   read-model:
     # The views module's read-only connection to the readmodel database, which the projector writes.
     datasource:
