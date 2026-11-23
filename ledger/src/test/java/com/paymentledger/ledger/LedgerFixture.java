@@ -52,6 +52,11 @@ public class LedgerFixture {
     return accounts.corrections();
   }
 
+  /** FPS Clearing, the debit-normal Clearing Account for Faster Payments. */
+  public AccountId fpsClearing() {
+    return accounts.fpsClearing();
+  }
+
   /** Opens a Customer Account for a new Customer, funded from Funding by a real Transaction. */
   public AccountId customerAccountWithBalance(Money balance) {
     return customerAccountWithBalance(balance, Money.ofPence(0));
