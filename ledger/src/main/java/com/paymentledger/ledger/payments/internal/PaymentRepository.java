@@ -1,5 +1,7 @@
 package com.paymentledger.ledger.payments.internal;
 
+import com.paymentledger.ledger.payments.EndToEndId;
+import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.PaymentType;
@@ -62,6 +64,47 @@ class PaymentRepository {
         .map(PaymentId::new);
   }
 
+  /** A Payment just inserted, and when it was. */
+  record InsertedPayment(PaymentId id, Instant createdAt) {}
+
+  /**
+   * Inserts the Pending Faster Payment with its End-to-End Id, or nothing when the Customer already
+   * made one with the key. A retry still in flight blocks on the unique index until the first
+   * commits or rolls back.
+   */
+  Optional<InsertedPayment> insertPendingFasterPayment(
+      KeyedPayment keyed,
+      AccountId debtor,
+      Payee.AtAnotherBank payee,
+      Money amount,
+      EndToEndId endToEndId) {
+    return jdbc.sql(
+            """
+            insert into payment (principal_id, idempotency_key, request_hash, type,
+                                 debtor_account_id, payee_sort_code, payee_account_number,
+                                 payee_name, amount_pence, status, end_to_end_id)
+            values (:principal, :key, :requestHash, 'FASTER_PAYMENT',
+                    :debtor, :sortCode, :accountNumber,
+                    :name, :amountPence, 'PENDING', :endToEndId)
+            on conflict (principal_id, idempotency_key) do nothing
+            returning id, created_at
+            """)
+        .param("principal", keyed.customer().value())
+        .param("key", keyed.key().value())
+        .param("requestHash", keyed.requestHash().value())
+        .param("debtor", debtor.value())
+        .param("sortCode", payee.sortCode())
+        .param("accountNumber", payee.accountNumber())
+        .param("name", payee.name())
+        .param("amountPence", amount.pence())
+        .param("endToEndId", endToEndId.value())
+        .query((rs, rowNum) ->
+            new InsertedPayment(
+                new PaymentId(rs.getObject("id", UUID.class)),
+                rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+        .optional();
+  }
+
   /** Marks the Payment Completed and returns when it was. */
   Instant markCompleted(PaymentId id) {
     return jdbc.sql(
@@ -94,8 +137,8 @@ class PaymentRepository {
   Optional<Payment> find(PaymentId id) {
     return jdbc.sql(
             """
-            select id, type, status, debtor_account_id, payee_account_id, amount_pence,
-                   rejection_reason
+            select id, type, status, debtor_account_id, payee_account_id, payee_sort_code,
+                   payee_account_number, payee_name, amount_pence, rejection_reason
             from payment
             where id = :id
             """)
@@ -123,12 +166,23 @@ class PaymentRepository {
 
   private static Payment toPayment(ResultSet rs, int rowNum) throws SQLException {
     String rejectionReason = rs.getString("rejection_reason");
+    PaymentType type = PaymentType.valueOf(rs.getString("type"));
+    Payee payee =
+        switch (type) {
+          case INTERNAL_TRANSFER ->
+              new Payee.AtTheFintech(new AccountId(rs.getObject("payee_account_id", UUID.class)));
+          case FASTER_PAYMENT ->
+              new Payee.AtAnotherBank(
+                  rs.getString("payee_sort_code"),
+                  rs.getString("payee_account_number"),
+                  rs.getString("payee_name"));
+        };
     return new Payment(
         new PaymentId(rs.getObject("id", UUID.class)),
-        PaymentType.valueOf(rs.getString("type")),
+        type,
         PaymentStatus.valueOf(rs.getString("status")),
         new AccountId(rs.getObject("debtor_account_id", UUID.class)),
-        new AccountId(rs.getObject("payee_account_id", UUID.class)),
+        payee,
         Money.ofPence(rs.getLong("amount_pence")),
         rejectionReason == null ? null : RejectionReason.valueOf(rejectionReason));
   }

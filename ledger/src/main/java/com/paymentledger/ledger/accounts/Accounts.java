@@ -24,6 +24,9 @@ public interface Accounts {
   /** The Corrections Account, on the other side of every Adjustment. */
   AccountId corrections();
 
+  /** FPS Clearing, the Clearing Account that Faster Payments wait in. */
+  AccountId fpsClearing();
+
   Optional<Account> find(AccountId id);
 
   /**

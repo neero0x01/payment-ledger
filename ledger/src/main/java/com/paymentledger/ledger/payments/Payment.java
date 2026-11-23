@@ -15,7 +15,7 @@ public record Payment(
     PaymentType type,
     PaymentStatus status,
     AccountId debtorAccount,
-    AccountId payeeAccount,
+    Payee payee,
     Money amount,
     @Nullable RejectionReason rejectionReason) {
 

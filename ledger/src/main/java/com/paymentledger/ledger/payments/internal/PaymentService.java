@@ -3,8 +3,11 @@ package com.paymentledger.ledger.payments.internal;
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.outbox.Outbox;
+import com.paymentledger.ledger.payments.EndToEndId;
+import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.internal.PaymentRepository.InsertedPayment;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.KeyedPayment;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.PaymentMadeWithKey;
 import com.paymentledger.ledger.posting.Entry;
@@ -57,21 +60,11 @@ class PaymentService {
   @Transactional(isolation = Isolation.READ_COMMITTED)
   IdempotentOutcome<Payment> makeInternalTransfer(
       CustomerId customer, IdempotencyKey key, AccountId debtor, AccountId payee, Money amount) {
-    Problem.requirePositive(amount);
-    if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
-      throw Problem.validationFailed("The amount must be at most £1,000,000.00");
-    }
+    requireAllowedAmount(amount);
     if (debtor.equals(payee)) {
       throw Problem.validationFailed("The Payee must be a different Account from the payer");
     }
-    Account payer =
-        accounts
-            .find(debtor)
-            .orElseThrow(
-                () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
-    if (!payer.isOwnedBy(customer)) {
-      throw Problem.forbidden("Account " + debtor.value() + " is not yours to pay from");
-    }
+    Account payer = payerOwnedBy(customer, debtor);
     if (accounts.find(payee).isEmpty()) {
       throw Problem.notFound("No Account " + payee.value() + " exists to pay");
     }
@@ -105,6 +98,72 @@ class PaymentService {
     Payment completed = payments.find(id).orElseThrow();
     outbox.append(PaymentStatusChangedEvent.of(completed, completedAt));
     return IdempotentOutcome.first(completed);
+  }
+
+  /**
+   * Checks the Customer owns the payer's Account, inserts the Pending Faster Payment with a new
+   * End-to-End Id and posts its Transaction, which moves the money into FPS Clearing. All in one
+   * database transaction. The Payment stays Pending until its Scheme Outcome; the Scheme Submission
+   * is sent only after commit, by the dispatcher. A Payment the Customer already made with the
+   * Idempotency-Key is replayed as it is now, and nothing new is posted.
+   */
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  IdempotentOutcome<Payment> makeFasterPayment(
+      CustomerId customer,
+      IdempotencyKey key,
+      AccountId debtor,
+      Payee.AtAnotherBank payee,
+      Money amount) {
+    requireAllowedAmount(amount);
+    payerOwnedBy(customer, debtor);
+    KeyedPayment keyed =
+        new KeyedPayment(
+            customer,
+            key,
+            RequestHash.of(
+                "FASTER_PAYMENT",
+                debtor.value().toString(),
+                payee.sortCode(),
+                payee.accountNumber(),
+                payee.name(),
+                Long.toString(amount.pence())));
+    Optional<InsertedPayment> inserted =
+        payments.insertPendingFasterPayment(keyed, debtor, payee, amount, EndToEndId.random());
+    if (inserted.isEmpty()) {
+      return replay(payments.findByIdempotencyKey(keyed).orElseThrow(), keyed.requestHash());
+    }
+    PaymentId id = inserted.get().id();
+    AccountId fpsClearing = accounts.fpsClearing();
+    posting.lockBalances(Set.of(debtor, fpsClearing));
+    posting.post(
+        NewTransaction.forPayment(
+            id,
+            List.of(
+                new Entry(debtor, Side.DEBIT, amount),
+                new Entry(fpsClearing, Side.CREDIT, amount))));
+    Payment pending = payments.find(id).orElseThrow();
+    outbox.append(PaymentStatusChangedEvent.of(pending, inserted.get().createdAt()));
+    return IdempotentOutcome.first(pending);
+  }
+
+  private static void requireAllowedAmount(Money amount) {
+    Problem.requirePositive(amount);
+    if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
+      throw Problem.validationFailed("The amount must be at most £1,000,000.00");
+    }
+  }
+
+  /** The payer's Account, refused unless it exists and the Customer owns it. */
+  private Account payerOwnedBy(CustomerId customer, AccountId debtor) {
+    Account payer =
+        accounts
+            .find(debtor)
+            .orElseThrow(
+                () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
+    if (!payer.isOwnedBy(customer)) {
+      throw Problem.forbidden("Account " + debtor.value() + " is not yours to pay from");
+    }
+    return payer;
   }
 
   /** The Payment made with the key, unless it was made by a different request. */
