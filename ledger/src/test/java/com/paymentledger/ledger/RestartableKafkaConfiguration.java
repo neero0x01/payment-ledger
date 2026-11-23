@@ -15,8 +15,9 @@ import org.testcontainers.kafka.KafkaContainer;
 /**
  * Real Postgres and a Kafka container that a test can stop and start again. Docker gives a
  * restarted container a new random host port, but Kafka advertises the port it started with, so
- * this one is bound to a fixed free port. A context of its own, so stopping Kafka never touches
- * other tests.
+ * this one is bound to a fixed free port. A context of its own, with its own Postgres too, so
+ * stopping Kafka never touches other tests, and no other context's outbox publisher sends this
+ * one's events to the shared Kafka while this Kafka is down.
  */
 @TestConfiguration(proxyBeanMethods = false)
 @Import(PostgresTestcontainer.class)
