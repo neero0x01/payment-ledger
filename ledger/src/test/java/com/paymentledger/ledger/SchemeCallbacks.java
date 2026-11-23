@@ -66,6 +66,16 @@ public class SchemeCallbacks {
         .exchange();
   }
 
+  /** Sends the body with no signature at all. */
+  public RestTestClient.ResponseSpec sendUnsigned(String body) {
+    return http.getObject()
+        .post()
+        .uri("/v1/scheme/callbacks")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(body)
+        .exchange();
+  }
+
   /** HMAC-SHA256 of the body under the key, as lowercase hex. */
   public static String sign(String body, String key) {
     try {
