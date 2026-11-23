@@ -8,9 +8,12 @@ status: accepted
 
 Events are written to an `outbox` table in the same database transaction as the Transaction or Payment change. A publisher inside the ledger works like this:
 
-- it polls every 200 ms with `SELECT … FOR UPDATE SKIP LOCKED LIMIT 500`
+- it polls every 200 ms, and each poll first takes a transaction-level advisory lock (`pg_try_advisory_xact_lock`), so only one publisher sends at a time however many ledger instances run; a poll that doesn't get the lock does nothing
+- it locks the oldest rows with `SELECT … ORDER BY id LIMIT 500 FOR UPDATE` and sends them in that order
 - it sends with Kafka's idempotent producer and `acks=all`
 - it marks each row published
+
+One publisher at a time keeps the events for a key in the order they were written. With `SKIP LOCKED` and several publishers, one publisher could skip a row another holds and send a later event for the same key first.
 
 This means a Payment never depends on Kafka being up. It also means an event can never be lost, because it commits together with the change it describes, or not at all.
 
