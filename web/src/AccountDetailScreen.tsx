@@ -1,15 +1,20 @@
-import { Alert, Paper, Stack, Typography } from "@mui/material";
+import { Alert, Chip, Paper, Stack, Typography } from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import dayjs from "dayjs";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { asDate, bookingTimeRange } from "./accountSearch";
 import { AsAtBalance } from "./AsAtBalance";
 import {
   accountQuery,
   accountsQuery,
+  balanceQuery,
   type StatementLine,
   statementQuery,
   type StatementRange,
@@ -40,12 +45,16 @@ function Statement({ accountId }: { accountId: string }) {
   const search = route.useSearch();
   const navigate = route.useNavigate();
   const range = bookingTimeRange(search);
+  const trailing = useTrailsLedger(accountId);
 
   return (
     <Stack spacing={1}>
-      <Typography variant="h5" component="h2">
-        Statement
-      </Typography>
+      <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+        <Typography variant="h5" component="h2">
+          Statement
+        </Typography>
+        {trailing && <Chip label="updating…" color="warning" size="small" />}
+      </Stack>
       <Stack direction="row" spacing={2}>
         <DatePicker
           label="From"
@@ -78,6 +87,31 @@ function Statement({ accountId }: { accountId: string }) {
       />
     </Stack>
   );
+}
+
+/**
+ * Whether the Read Model trails the ledger for this Account, as after a Payment the projector has
+ * not applied yet: its Read Model Balance differs from the ledger's. When it catches up, the
+ * Statement is fetched again at once rather than at the next poll.
+ */
+function useTrailsLedger(accountId: string) {
+  const queryClient = useQueryClient();
+  const readModel = useQuery(accountQuery(accountId));
+  const ledger = useQuery(balanceQuery(accountId));
+  const trailing =
+    readModel.isSuccess &&
+    ledger.isSuccess &&
+    readModel.data.balancePence !== ledger.data.balancePence;
+  const wasTrailing = useRef(false);
+  useEffect(() => {
+    if (wasTrailing.current && !trailing) {
+      void queryClient.invalidateQueries({
+        queryKey: ["accounts", accountId, "statement"],
+      });
+    }
+    wasTrailing.current = trailing;
+  }, [trailing, accountId, queryClient]);
+  return trailing;
 }
 
 const PAGE_SIZE = 50;

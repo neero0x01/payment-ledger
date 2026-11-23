@@ -164,4 +164,6 @@ export const balanceQuery = (accountId: string, asAt?: string) =>
         }`,
         "Balance",
       ),
+    // A past As-At Balance never changes; the Balance now is a live view.
+    refetchInterval: asAt ? false : POLL_INTERVAL_MS,
   });
