@@ -37,6 +37,14 @@ docker compose up --build postgres ledger
 cd web && npm install && npm run dev
 ```
 
+To rebuild the Read Model by replaying Kafka, stop the projector, run it once with `--rebuild` (it builds fresh tables from offset 0, swaps them in and exits; it refuses to run while the projector is consuming), then start it again:
+
+```sh
+docker compose stop projector
+docker compose run --rm projector --rebuild
+docker compose start projector
+```
+
 Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page.
 
 ## Docs
