@@ -1,4 +1,4 @@
-# Local stack: Postgres, Kafka, the ledger and the bare transfer page.
+# Local stack: Postgres, Kafka, the ledger, the projector and the bare transfer page.
 services:
   postgres:
     image: postgres:18
@@ -10,6 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
+      # Creates the readmodel database on first start (an existing postgres-data volume skips it).
+      - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
       interval: 2s
@@ -46,12 +48,29 @@ services:
       LEDGER_DB_USER: ledger
       LEDGER_DB_PASSWORD: ledger
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      READMODEL_DB_URL: jdbc:postgresql://postgres:5432/readmodel
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
       # Payments never wait for Kafka; the outbox publisher catches up once it is reachable.
+      kafka:
+        condition: service_started
+
+  projector:
+    # Builds the Read Model from Kafka into the readmodel database (ADR 0002). Headless.
+    build:
+      context: ..
+      dockerfile: projector/Dockerfile
+    environment:
+      PROJECTOR_DB_URL: jdbc:postgresql://postgres:5432/readmodel
+      PROJECTOR_DB_USER: ledger
+      PROJECTOR_DB_PASSWORD: ledger
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres:
+        condition: service_healthy
       kafka:
         condition: service_started
 

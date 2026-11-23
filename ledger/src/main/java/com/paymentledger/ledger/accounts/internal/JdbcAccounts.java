@@ -6,7 +6,11 @@ import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Side;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -83,20 +87,49 @@ class JdbcAccounts implements Accounts {
   public Optional<Account> find(AccountId id) {
     return jdbc.sql(
             """
-            select id, kind, normal_side, overdraft_limit_pence, customer_id
+            select id, name, kind, normal_side, overdraft_limit_pence, customer_id
             from account
             where id = :id
             """)
         .param("id", id.value())
-        .query((rs, rowNum) -> {
-          UUID owner = rs.getObject("customer_id", UUID.class);
-          return new Account(
-              new AccountId(rs.getObject("id", UUID.class)),
-              AccountKind.valueOf(rs.getString("kind")),
-              Side.valueOf(rs.getString("normal_side")),
-              Money.ofPence(rs.getLong("overdraft_limit_pence")),
-              owner == null ? null : new CustomerId(owner));
-        })
+        .query(JdbcAccounts::account)
         .optional();
+  }
+
+  @Override
+  public List<Account> visibleTo(Principal principal) {
+    return principal
+        .customerId()
+        .map(customer ->
+            jdbc.sql(
+                    """
+                    select id, name, kind, normal_side, overdraft_limit_pence, customer_id
+                    from account
+                    where customer_id = :customerId
+                    order by created_at, id
+                    """)
+                .param("customerId", customer.value())
+                .query(JdbcAccounts::account)
+                .list())
+        .orElseGet(() ->
+            jdbc.sql(
+                    """
+                    select id, name, kind, normal_side, overdraft_limit_pence, customer_id
+                    from account
+                    order by created_at, id
+                    """)
+                .query(JdbcAccounts::account)
+                .list());
+  }
+
+  private static Account account(ResultSet rs, int rowNum) throws SQLException {
+    UUID owner = rs.getObject("customer_id", UUID.class);
+    return new Account(
+        new AccountId(rs.getObject("id", UUID.class)),
+        rs.getString("name"),
+        AccountKind.valueOf(rs.getString("kind")),
+        Side.valueOf(rs.getString("normal_side")),
+        Money.ofPence(rs.getLong("overdraft_limit_pence")),
+        owner == null ? null : new CustomerId(owner));
   }
 }

@@ -5,7 +5,10 @@ WORKDIR /src
 COPY mvnw pom.xml ./
 COPY .mvn .mvn
 COPY ledger/pom.xml ledger/pom.xml
+# The ledger's tests run the projector, so the reactor needs it too.
+COPY projector/pom.xml projector/pom.xml
 RUN ./mvnw -B -ntp -pl ledger -am dependency:go-offline
+COPY projector/src projector/src
 COPY ledger/src ledger/src
 RUN ./mvnw -B -ntp -pl ledger -am package -DskipTests -Dspotless.check.skip=true
 

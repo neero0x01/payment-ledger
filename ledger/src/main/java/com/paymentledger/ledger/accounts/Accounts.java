@@ -3,6 +3,8 @@ package com.paymentledger.ledger.accounts;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Principal;
+import java.util.List;
 import java.util.Optional;
 
 /** Customers, their Customer Accounts and the Internal Accounts. */
@@ -23,4 +25,10 @@ public interface Accounts {
   AccountId corrections();
 
   Optional<Account> find(AccountId id);
+
+  /**
+   * The Accounts the Principal may see, oldest first: a Customer's own Customer Accounts, or every
+   * Account for an Operator.
+   */
+  List<Account> visibleTo(Principal principal);
 }
