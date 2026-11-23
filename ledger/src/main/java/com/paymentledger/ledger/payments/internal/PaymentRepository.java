@@ -183,6 +183,24 @@ class PaymentRepository {
         .optional();
   }
 
+  /**
+   * The Faster Payment with the End-to-End Id, locked until the database transaction ends, so two
+   * Scheme Outcomes for it are recorded one after the other.
+   */
+  Optional<Payment> lockByEndToEndId(EndToEndId endToEndId) {
+    return jdbc.sql(
+            """
+            select id, type, status, debtor_account_id, payee_account_id, payee_sort_code,
+                   payee_account_number, payee_name, amount_pence, rejection_reason
+            from payment
+            where end_to_end_id = :endToEndId
+            for update
+            """)
+        .param("endToEndId", endToEndId.value())
+        .query(PaymentRepository::toPayment)
+        .optional();
+  }
+
   /** The Payment the Customer made with this Idempotency-Key, if any. */
   Optional<PaymentMadeWithKey> findByIdempotencyKey(KeyedPayment keyed) {
     return jdbc.sql(

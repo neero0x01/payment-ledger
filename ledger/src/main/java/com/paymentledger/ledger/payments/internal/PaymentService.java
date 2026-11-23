@@ -6,7 +6,9 @@ import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.payments.EndToEndId;
 import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.Payment;
+import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.SchemeOutcome;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.InsertedPayment;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.KeyedPayment;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.PaymentMadeWithKey;
@@ -144,6 +146,29 @@ class PaymentService {
     Payment pending = payments.find(id).orElseThrow();
     outbox.append(PaymentStatusChangedEvent.of(pending, inserted.get().createdAt()));
     return IdempotentOutcome.first(pending);
+  }
+
+  /**
+   * Records the Scheme Outcome of a Pending Faster Payment: an accepted one makes it Completed with
+   * no further Transaction, because the money stays in FPS Clearing. An outcome for a Payment that
+   * is no longer Pending changes nothing. Refuses an unknown End-to-End Id as not-found.
+   */
+  @Transactional(isolation = Isolation.READ_COMMITTED)
+  void recordSchemeOutcome(SchemeOutcome outcome) {
+    Payment payment =
+        payments
+            .lockByEndToEndId(outcome.endToEndId())
+            .orElseThrow(() ->
+                Problem.notFound(
+                    "No Faster Payment has End-to-End Id " + outcome.endToEndId().value()));
+    if (payment.status() != PaymentStatus.PENDING) {
+      return;
+    }
+    if (outcome.status() == SchemeOutcome.Status.ACSC) {
+      Instant completedAt = payments.markCompleted(payment.id());
+      outbox.append(
+          PaymentStatusChangedEvent.of(payments.find(payment.id()).orElseThrow(), completedAt));
+    }
   }
 
   private static void requireAllowedAmount(Money amount) {

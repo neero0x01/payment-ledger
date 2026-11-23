@@ -39,6 +39,9 @@ class WebSecurity {
                 .permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/payments")
                 .hasRole(Role.CUSTOMER.name())
+                // The scheme has no session; its callbacks carry an HMAC signature instead.
+                .requestMatchers(HttpMethod.POST, "/v1/scheme/callbacks")
+                .permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/corrections")
                 .hasRole(Role.OPERATOR.name())
                 .requestMatchers(HttpMethod.GET, "/v1/transactions/**")
@@ -65,7 +68,7 @@ class WebSecurity {
                         null,
                         Problem.unauthenticated("Wrong username or password")))
                 .permitAll())
-        .csrf(csrf -> csrf.spa())
+        .csrf(csrf -> csrf.spa().ignoringRequestMatchers("/v1/scheme/callbacks"))
         .addFilterAfter(new CsrfCookieFilter(), CsrfFilter.class)
         .exceptionHandling(exceptions ->
             exceptions
