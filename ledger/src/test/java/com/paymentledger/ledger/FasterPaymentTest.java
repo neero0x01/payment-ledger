@@ -1,9 +1,13 @@
 package com.paymentledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+import com.paymentledger.ledger.payments.Payee;
+import com.paymentledger.ledger.payments.SchemeSubmission;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
@@ -20,11 +24,17 @@ import org.springframework.test.web.servlet.client.RestTestClient;
 /** Scenario 6: Outbound Faster Payment [M5], with an in-memory fake PaymentScheme. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
-@Import({TestcontainersConfiguration.class, LedgerFixture.class, Sessions.class})
+@Import({
+  TestcontainersConfiguration.class,
+  LedgerFixture.class,
+  Sessions.class,
+  FakePaymentScheme.class
+})
 class FasterPaymentTest {
 
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
+  @Autowired FakePaymentScheme scheme;
 
   AccountId a;
   String payeeAccountNumber;
@@ -84,6 +94,38 @@ class FasterPaymentTest {
     assertThat(balancePenceOf(a)).isEqualTo(60_00);
     // FPS Clearing is debit-normal, so a Credit takes it down.
     assertThat(balancePenceOf(ledger.fpsClearing())).isEqualTo(fpsClearingBefore - 40_00);
+  }
+
+  @Test
+  void scheme_submission_with_a_new_end_to_end_id_goes_through_the_payment_scheme_after_commit() {
+    makeFasterPayment(40_00);
+
+    FakePaymentScheme.Received received = scheme.awaitSubmissionTo(payeeAccountNumber);
+
+    SchemeSubmission submission = received.submission();
+    assertThat(submission.endToEndId().value()).isNotBlank();
+    assertThat(submission.debtorAccount()).isEqualTo(a);
+    assertThat(submission.creditor())
+        .isEqualTo(new Payee.AtAnotherBank("040004", payeeAccountNumber, "Jane Doe"));
+    assertThat(submission.amount()).isEqualTo(Money.ofPence(40_00));
+    // The Payment's Transaction had committed when the scheme was called.
+    assertThat(received.debtorBalance()).isEqualTo(Money.ofPence(60_00));
+  }
+
+  @Test
+  void each_faster_payment_is_submitted_once_with_its_own_end_to_end_id()
+      throws InterruptedException {
+    makeFasterPayment(10_00);
+    makeFasterPayment(20_00);
+
+    await()
+        .atMost(Duration.ofSeconds(10))
+        .until(() -> scheme.submissionsTo(payeeAccountNumber), list -> list.size() >= 2);
+    // A later poll of the dispatcher must not send either again.
+    Thread.sleep(1_000);
+    List<FakePaymentScheme.Received> submissions = scheme.submissionsTo(payeeAccountNumber);
+    assertThat(submissions).hasSize(2);
+    assertThat(submissions.stream().map(r -> r.submission().endToEndId()).distinct()).hasSize(2);
   }
 
   @Test
