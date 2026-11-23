@@ -45,19 +45,18 @@ import org.springframework.stereotype.Component;
 @Component
 class BalancedCheck implements MeterBinder {
 
-  /**
-   * How far back before the last run's start a touch still counts: a posting stamps its balance row
-   * before it commits, so a commit landing just after a run started is caught by the next.
-   */
-  private static final Duration COMMIT_SLACK = Duration.ofSeconds(5);
-
   private static final Logger log = LoggerFactory.getLogger(BalancedCheck.class);
 
   private final JdbcClient jdbc;
   private final ReadModelBalances readModelBalances;
   private final Duration allowedFreshness;
   private volatile Result last = Result.NOT_RUN;
-  private @Nullable Instant lastStartedAt;
+
+  /**
+   * The oldest transaction id still running when the last run started: every transaction that
+   * changed a balance row since then, or was still to commit, has this id or a later one.
+   */
+  private @Nullable Long lastStartXmin;
 
   /** Accounts the last run found drifting, or trailed by the Read Model: checked on every run. */
   private Set<AccountId> unproven = Set.of();
@@ -90,7 +89,7 @@ class BalancedCheck implements MeterBinder {
   /** Checks the Accounts touched since the last run; the first run checks every Account. */
   @Scheduled(fixedDelayString = "${ledger.balanced-check.interval:PT60S}")
   synchronized void run() {
-    check(lastStartedAt == null);
+    check(lastStartXmin == null);
   }
 
   /** The nightly full sweep, which checks every Account whether or not anything touched it. */
@@ -100,17 +99,27 @@ class BalancedCheck implements MeterBinder {
   }
 
   private void check(boolean everyAccount) {
-    Instant startedAt =
-        jdbc.sql("select clock_timestamp()").query(OffsetDateTime.class).single().toInstant();
+    RunStart start =
+        jdbc.sql(
+                """
+                select clock_timestamp() as started_at,
+                       pg_snapshot_xmin(pg_current_snapshot())::text::bigint as xmin
+                """)
+            .query((rs, rowNum) ->
+                new RunStart(
+                    rs.getObject("started_at", OffsetDateTime.class).toInstant(),
+                    rs.getLong("xmin")))
+            .single();
+    Instant startedAt = start.startedAt();
     long imbalance = Math.abs(debitsMinusCredits());
     Set<AccountId> accounts;
     Map<AccountId, Money> storedDrifts;
-    if (everyAccount || lastStartedAt == null) {
+    if (everyAccount || lastStartXmin == null) {
       accounts = Set.copyOf(allAccountsWithBalances());
       storedDrifts = allStoredBalanceDrifts();
     } else {
       accounts = new HashSet<>(unproven);
-      accounts.addAll(touchedSince(lastStartedAt.minus(COMMIT_SLACK)));
+      accounts.addAll(touchedSince(lastStartXmin));
       storedDrifts = storedBalanceDrifts(accounts);
     }
     ReadModelComparison readModel = compareWithReadModel(accounts, startedAt);
@@ -124,7 +133,7 @@ class BalancedCheck implements MeterBinder {
     stillUnproven.addAll(readModel.drifts().keySet());
     stillUnproven.addAll(readModel.trailing());
     unproven = stillUnproven;
-    lastStartedAt = startedAt;
+    lastStartXmin = start.xmin();
     last = new Result(startedAt, imbalance, readModel.trailingTooLong().size());
   }
 
@@ -231,10 +240,21 @@ class BalancedCheck implements MeterBinder {
         .single();
   }
 
-  /** The Accounts whose balance row a posting changed at or after the moment. */
-  private List<AccountId> touchedSince(Instant moment) {
-    return jdbc.sql("select account_id from account_balance where updated_at >= :since")
-        .param("since", moment.atOffset(ZoneOffset.UTC))
+  /**
+   * The Accounts whose balance row was last changed by the transaction with this id or a later one.
+   * A posting changes the row before it commits, possibly long before, so a time stamp on the row
+   * can't say whether the last run saw it; the transaction id can. Every transaction older than the
+   * id had ended when the last run started, so the last run saw its changes. Ids are compared by
+   * age, as Postgres compares them, so this holds across transaction id wraparound.
+   */
+  private List<AccountId> touchedSince(long transactionId) {
+    return jdbc.sql(
+            """
+            select account_id
+            from account_balance
+            where age(xmin) <= age((:transactionId % 4294967296)::text::xid)
+            """)
+        .param("transactionId", transactionId)
         .query((rs, rowNum) -> new AccountId(rs.getObject("account_id", UUID.class)))
         .list();
   }
@@ -360,6 +380,9 @@ class BalancedCheck implements MeterBinder {
         .stream()
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
+
+  /** When a run started, and the oldest transaction id still running then. */
+  private record RunStart(Instant startedAt, long xmin) {}
 
   /** An Account's stored Balance and the last entry_seq handed out. */
   private record WriteSideBalance(Money balance, long lastEntrySeq) {}
