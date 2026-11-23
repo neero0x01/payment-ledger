@@ -16,6 +16,7 @@ import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.RequestHash;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -110,10 +111,11 @@ class PaymentRepository {
 
   /**
    * Claims up to the limit of Pending Faster Payments that have never been submitted, oldest first,
-   * counting a Scheme Submission for each, and returns what to submit. Rows another dispatcher has
-   * locked are skipped.
+   * counting a Scheme Submission for each, and returns what to submit. A Payment whose last Scheme
+   * Submission failed is claimed again once the retry delay has passed since it was sent. Rows
+   * another dispatcher has locked are skipped.
    */
-  List<SchemeSubmission> claimUnsubmittedFasterPayments(int limit) {
+  List<SchemeSubmission> claimUnsubmittedFasterPayments(int limit, Duration retryDelay) {
     return jdbc.sql(
             """
             update payment
@@ -123,6 +125,8 @@ class PaymentRepository {
                 select id
                 from payment
                 where type = 'FASTER_PAYMENT' and status = 'PENDING' and submission_attempts = 0
+                  and (last_submitted_at is null
+                       or last_submitted_at < clock_timestamp() - make_interval(secs => :retryDelay))
                 order by created_at
                 limit :limit
                 for update skip locked)
@@ -130,6 +134,7 @@ class PaymentRepository {
                       payee_name, amount_pence
             """)
         .param("limit", limit)
+        .param("retryDelay", retryDelay.toMillis() / 1000.0)
         .query((rs, rowNum) ->
             new SchemeSubmission(
                 new EndToEndId(rs.getString("end_to_end_id")),
@@ -140,6 +145,21 @@ class PaymentRepository {
                     rs.getString("payee_name")),
                 Money.ofPence(rs.getLong("amount_pence"))))
         .list();
+  }
+
+  /**
+   * Gives back the claim on a Pending Faster Payment whose Scheme Submission failed, so it no
+   * longer counts and a later poll claims the Payment again.
+   */
+  void releaseFailedSubmission(EndToEndId endToEndId) {
+    jdbc.sql(
+            """
+            update payment
+            set submission_attempts = submission_attempts - 1
+            where end_to_end_id = :endToEndId and status = 'PENDING' and submission_attempts > 0
+            """)
+        .param("endToEndId", endToEndId.value())
+        .update();
   }
 
   /** Marks the Payment Completed and returns when it was. */
