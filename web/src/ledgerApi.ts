@@ -105,3 +105,38 @@ export const accountsQuery = () =>
     queryFn: () => getJson<Account[]>("/v1/accounts", "Accounts"),
     refetchInterval: POLL_INTERVAL_MS,
   });
+
+export const accountQuery = (accountId: string) =>
+  queryOptions({
+    queryKey: ["accounts", accountId],
+    queryFn: () => getJson<Account>(`/v1/accounts/${accountId}`, "Account"),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+
+/** One Entry as the Customer sees it, from the Read Model. */
+export type StatementLine = {
+  transactionId: string;
+  bookingTime: string;
+  entrySeq: number;
+  side: "DEBIT" | "CREDIT";
+  amountPence: number;
+  balanceAfterPence: number;
+  counterpartyAccountId: string | null;
+};
+
+export type StatementPage = {
+  accountId: string;
+  lines: StatementLine[];
+  nextCursor: string | null;
+};
+
+export const statementQuery = (accountId: string) =>
+  queryOptions({
+    queryKey: ["accounts", accountId, "statement"],
+    queryFn: () =>
+      getJson<StatementPage>(
+        `/v1/accounts/${accountId}/statement`,
+        "Statement",
+      ),
+    refetchInterval: POLL_INTERVAL_MS,
+  });

@@ -11,6 +11,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import "dayjs/locale/en-gb";
+import { AccountDetailScreen } from "./AccountDetailScreen";
 import { AccountsScreen } from "./AccountsScreen";
 import { App } from "./App";
 import { theme } from "./theme";
@@ -35,6 +36,7 @@ const accountsRoute = createRoute({
 const accountRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/accounts/$accountId",
+  component: AccountDetailScreen,
 });
 
 const transferRoute = createRoute({
