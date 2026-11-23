@@ -9,12 +9,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 /**
  * The balanced check's nightly full sweep (spec §13) checks every Account's stored Balance against
  * its Entries, so drift on an Account nothing touches is still found. Here the sweep runs every
- * second and the touched-Accounts run only once, at startup.
+ * second and the touched-Accounts run only once, at startup. The sweep covers every Account in the
+ * ledger, so the context has its own Postgres and Kafka, closed after the class: on the shared ones
+ * it would also find other tests' drift, and leave its own behind.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -24,11 +27,12 @@ import org.springframework.test.web.servlet.client.RestTestClient;
     })
 @AutoConfigureRestTestClient
 @Import({
-  TestcontainersConfiguration.class,
+  DedicatedContainersConfiguration.class,
   ProjectorConfiguration.class,
   LedgerFixture.class,
   Sessions.class
 })
+@DirtiesContext
 class NightlySweepTest {
 
   @Autowired LedgerFixture ledger;
