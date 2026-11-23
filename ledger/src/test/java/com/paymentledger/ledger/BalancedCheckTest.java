@@ -61,6 +61,26 @@ class BalancedCheckTest {
         .isBetween(Instant.now().minusSeconds(60), Instant.now().plusSeconds(5));
   }
 
+  @Test
+  @Order(2)
+  void a_stored_balance_that_drifts_from_its_entries_is_detected() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient operator = sessions.operator();
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+    long before = BalancedCheckGauges.imbalancePence(operator);
+
+    ledger.driftStoredBalance(b, Money.ofPence(7_77));
+    transfer(sessions.customerOwning(a), a, b, 1_00);
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+
+    assertThat(BalancedCheckGauges.balanced(operator)).isZero();
+    assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 7_77);
+    // The drift stays reported on later runs, though nothing touches b again.
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+    assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 7_77);
+  }
+
   static void transfer(RestTestClient customer, AccountId from, AccountId to, long amountPence) {
     customer
         .post()

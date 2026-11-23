@@ -152,6 +152,22 @@ public class LedgerFixture {
     });
   }
 
+  /**
+   * Drifts the Account's stored Balance by the change without an Entry and without counting as a
+   * touch, as a bug in posting could. Only a test may write a balance row like this.
+   */
+  public void driftStoredBalance(AccountId account, Money change) {
+    jdbc.sql(
+            """
+            update account_balance
+            set balance_pence = balance_pence + :change
+            where account_id = :accountId
+            """)
+        .param("accountId", account.value())
+        .param("change", change.pence())
+        .update();
+  }
+
   private void insertBackdatedEntry(
       UUID transactionId,
       AccountId account,
