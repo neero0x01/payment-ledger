@@ -84,6 +84,15 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public AccountId fpsClearing() {
+    UUID id =
+        jdbc.sql("select id from account where kind = 'INTERNAL' and name = 'FPS Clearing'")
+            .query(UUID.class)
+            .single();
+    return new AccountId(id);
+  }
+
+  @Override
   public Optional<Account> find(AccountId id) {
     return jdbc.sql(
             """
