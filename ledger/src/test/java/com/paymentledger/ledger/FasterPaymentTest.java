@@ -242,6 +242,17 @@ class FasterPaymentTest {
   }
 
   @Test
+  void signed_scheme_outcome_that_is_the_json_literal_null_is_refused_with_400() {
+    callbacks
+        .send("null")
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/validation-failed");
+  }
+
+  @Test
   void faster_payment_failing_the_funds_check_is_rejected_and_never_submitted() {
     PaymentView rejected = makeFasterPayment(100_01);
 
