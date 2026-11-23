@@ -16,8 +16,10 @@ import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -30,14 +32,18 @@ import org.springframework.test.web.servlet.client.RestTestClient;
  * Model Balance of those Accounts equals the write-side Balance. Operators read the result in the
  * ledger_balanced and ledger_imbalance_pence gauges, with the time of the last run.
  *
- * <p>The check runs every 200 ms here instead of every 60 s. The gauges cover the whole ledger, so
- * the healthy ledger is checked first and each drift test asserts what its own drift adds. For the
- * same reason the context has its own Postgres and Kafka, closed after the class: on the shared
- * ones it would see other contexts' Accounts and Read Model events, and leave its drift behind.
+ * <p>The check runs every 200 ms here instead of every 60 s, and allows the Read Model to trail by
+ * 5 s instead of 60 s. The last test stops the projector. The gauges cover the whole ledger, so the
+ * healthy ledger is checked first and each drift test asserts what its own drift adds. For the same
+ * reason the context has its own Postgres and Kafka, closed after the class: on the shared ones it
+ * would see other contexts' Accounts and Read Model events, and leave its drift behind.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "ledger.balanced-check.interval=PT0.2S")
+    properties = {
+      "ledger.balanced-check.interval=PT0.2S",
+      "ledger.balanced-check.projection-freshness=PT5S"
+    })
 @AutoConfigureRestTestClient
 @Import({
   DedicatedContainersConfiguration.class,
@@ -53,6 +59,10 @@ class BalancedCheckTest {
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
   @Autowired TransactionPostedProducer events;
+
+  @Autowired
+  @Qualifier(ProjectorConfiguration.PROJECTOR)
+  ConfigurableApplicationContext projector;
 
   @Test
   @Order(1)
@@ -114,6 +124,30 @@ class BalancedCheckTest {
 
     assertThat(BalancedCheckGauges.balanced(operator)).isZero();
     assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 33_45);
+  }
+
+  @Test
+  @Order(5)
+  void an_account_the_read_model_trails_beyond_the_allowed_projection_freshness_is_drift() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    RestTestClient operator = sessions.operator();
+    awaitReadModelBalance(customer, a, 100_00);
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+    long before = BalancedCheckGauges.imbalancePence(operator);
+
+    projector.close();
+    transfer(customer, a, b, 10_00);
+
+    // Within the allowed Projection Freshness, a Read Model that trails is no drift.
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+    assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before);
+    // Beyond it, a (written £90.00, projected £100.00) and b (written £10.00, never projected) are.
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .until(() -> BalancedCheckGauges.imbalancePence(operator) == before + 20_00);
+    assertThat(BalancedCheckGauges.balanced(operator)).isZero();
   }
 
   private static void awaitReadModelBalance(
