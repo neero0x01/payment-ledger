@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: projector
+  datasource:
+    url: ${PROJECTOR_DB_URL:jdbc:postgresql://localhost:5432/readmodel}
+    username: ${PROJECTOR_DB_USER:ledger}
+    password: ${PROJECTOR_DB_PASSWORD:ledger}
+  flyway:
+    # Not db/migration, which holds the ledger's migrations when both are on one classpath.
+    locations: classpath:db/readmodel
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}

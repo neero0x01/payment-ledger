@@ -18,6 +18,7 @@
   <name>payment-ledger</name>
 
   <modules>
+    <module>projector</module>
     <module>ledger</module>
   </modules>
 
