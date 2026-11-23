@@ -70,13 +70,13 @@ class BalancedCheckTest {
     BalancedCheckGauges.awaitRunStartedAfterNow(operator);
     long before = BalancedCheckGauges.imbalancePence(operator);
 
-    ledger.driftStoredBalance(b, Money.ofPence(7_77));
+    ledger.driftStoredBalance(a, Money.ofPence(7_77));
     transfer(sessions.customerOwning(a), a, b, 1_00);
     BalancedCheckGauges.awaitRunStartedAfterNow(operator);
 
     assertThat(BalancedCheckGauges.balanced(operator)).isZero();
     assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 7_77);
-    // The drift stays reported on later runs, though nothing touches b again.
+    // The drift stays reported on later runs, though nothing touches a again.
     BalancedCheckGauges.awaitRunStartedAfterNow(operator);
     assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 7_77);
   }
