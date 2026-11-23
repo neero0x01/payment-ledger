@@ -138,6 +138,17 @@ class FasterPaymentTest {
   }
 
   @Test
+  void scheme_submission_that_fails_is_sent_again_on_a_later_poll() {
+    scheme.failNextSubmissionTo(payeeAccountNumber);
+
+    PaymentView pending = makeFasterPayment(40_00);
+
+    FakePaymentScheme.Received received = scheme.awaitSubmissionTo(payeeAccountNumber);
+    assertThat(received.submission().amount()).isEqualTo(Money.ofPence(40_00));
+    assertThat(payment(pending.id()).status()).isEqualTo("PENDING");
+  }
+
+  @Test
   void accepted_scheme_outcome_completes_the_payment_and_posts_no_new_transaction() {
     PaymentView pending = makeFasterPayment(40_00);
     EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
