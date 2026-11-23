@@ -50,6 +50,9 @@ ledger:
     interval: PT60S
     # The full sweep, which checks every Account however long since anything touched it.
     full-sweep-cron: "0 0 2 * * *"
+    # How long the Read Model may trail an Account (Projection Freshness) before the check counts
+    # it as drift.
+    projection-freshness: PT60S
   read-model:
     # The views module's read-only connection to the readmodel database, which the projector writes.
     datasource:
