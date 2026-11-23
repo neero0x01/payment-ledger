@@ -6,6 +6,7 @@ import { getRouteApi } from "@tanstack/react-router";
 import dayjs from "dayjs";
 import { useState } from "react";
 import { asDate, bookingTimeRange } from "./accountSearch";
+import { AsAtBalance } from "./AsAtBalance";
 import {
   accountQuery,
   accountsQuery,
@@ -17,7 +18,7 @@ import { formatPence } from "./money";
 
 const route = getRouteApi("/accounts/$accountId");
 
-/** One Account: its Statement from the Read Model. */
+/** One Account: its As-At Balance from the ledger and its Statement from the Read Model. */
 export function AccountDetailScreen() {
   const { accountId } = route.useParams();
   const account = useQuery(accountQuery(accountId));
@@ -29,6 +30,7 @@ export function AccountDetailScreen() {
       {account.isError && (
         <Alert severity="error">The Account is unavailable.</Alert>
       )}
+      <AsAtBalance accountId={accountId} />
       <Statement accountId={accountId} />
     </Stack>
   );
