@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://paymentledger.example/schemas/payment-status-changed.v1.json",
+  "title": "PaymentStatusChanged v1",
+  "description": "A Payment's status as it stands after a change, on payments.payment-status-changed.v1 keyed by its Payment id.",
+  "type": "object",
+  "required": [
+    "eventId",
+    "type",
+    "schemaVersion",
+    "occurredAt",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique per event; consumers dedupe on it."
+    },
+    "type": {
+      "const": "PaymentStatusChanged"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the Payment took this status."
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "paymentId",
+        "type",
+        "status",
+        "rejectionReason",
+        "schemeReasonCode",
+        "amountPence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "paymentId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "type": {
+          "enum": [
+            "INTERNAL_TRANSFER",
+            "FASTER_PAYMENT"
+          ]
+        },
+        "status": {
+          "enum": [
+            "PENDING",
+            "COMPLETED",
+            "REJECTED"
+          ]
+        },
+        "rejectionReason": {
+          "enum": [
+            "INSUFFICIENT_FUNDS",
+            "SCHEME_REJECTED",
+            null
+          ],
+          "description": "Why the Payment was Rejected; null unless its status is REJECTED."
+        },
+        "schemeReasonCode": {
+          "enum": [
+            "AC01",
+            "AC04",
+            "AG01",
+            "MS03",
+            null
+          ],
+          "description": "The ISO reason code a Scheme Rejection gave; null unless the Rejection Reason is SCHEME_REJECTED."
+        },
+        "amountPence": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  }
+}
