@@ -201,6 +201,47 @@ class FasterPaymentTest {
   }
 
   @Test
+  void scheme_outcome_with_an_invalid_signature_is_refused_with_401_and_changes_nothing() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    String rejection =
+        """
+        {"endToEndId": "%s", "status": "RJCT", "reasonCode": "AC04"}
+        """
+            .formatted(endToEndId.value());
+
+    callbacks
+        .sendSigned(rejection, SchemeCallbacks.sign(rejection, "not-the-scheme-key"))
+        .expectStatus()
+        .isUnauthorized()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/unauthenticated");
+
+    PaymentView stillPending = payment(pending.id());
+    assertThat(stillPending.status()).isEqualTo("PENDING");
+    assertThat(stillPending.transactionIds()).hasSize(1);
+    assertThat(balancePenceOf(a)).isEqualTo(60_00);
+  }
+
+  @Test
+  void scheme_outcome_with_no_signature_is_refused_with_401() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+
+    callbacks
+        .sendUnsigned(
+            """
+            {"endToEndId": "%s", "status": "ACSC"}
+            """
+                .formatted(endToEndId.value()))
+        .expectStatus()
+        .isUnauthorized();
+
+    assertThat(payment(pending.id()).status()).isEqualTo("PENDING");
+  }
+
+  @Test
   void faster_payment_to_a_malformed_sort_code_is_refused_with_400_and_stores_nothing() {
     customer
         .post()
