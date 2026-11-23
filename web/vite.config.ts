@@ -12,6 +12,8 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // Booking Times show in the browser's time zone; tests pin it.
+    env: { TZ: "UTC" },
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
   },
