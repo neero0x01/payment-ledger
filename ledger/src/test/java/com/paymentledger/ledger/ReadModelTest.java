@@ -2,6 +2,7 @@ package com.paymentledger.ledger;
 
 import static com.paymentledger.ledger.ReadEndpoints.accounts;
 import static com.paymentledger.ledger.ReadEndpoints.statementLines;
+import static com.paymentledger.ledger.ReadEndpoints.statementPage;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -12,6 +13,7 @@ import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Side;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -39,6 +41,7 @@ import tools.jackson.databind.JsonNode;
 class ReadModelTest {
 
   private static final Duration PROJECTION = Duration.ofSeconds(30);
+  private static final Instant HOUR_ZERO = Instant.parse("2026-11-01T00:00:00Z");
 
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
@@ -134,6 +137,83 @@ class ReadModelTest {
     List<JsonNode> lines = awaitStatementLines(customer, a, 3);
     assertThat(lines).extracting(line -> line.get("entrySeq").asLong()).containsExactly(3L, 2L, 1L);
     assertThat(onlyAccount(accounts(customer)).get("balancePence").asLong()).isEqualTo(123_00);
+  }
+
+  @Test
+  void statement_pages_newest_first_by_booking_time_and_entry_seq() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    events.send(hourlyFundings(a, 55));
+    awaitStatementLines(customer, a, 55);
+
+    JsonNode first = statementPage(customer, a);
+    JsonNode second = statementPage(customer, a, "cursor", first.get("nextCursor").asString());
+
+    assertThat(entrySeqs(first)).hasSize(50).startsWith(55L, 54L).endsWith(6L);
+    assertThat(entrySeqs(second)).containsExactly(5L, 4L, 3L, 2L, 1L);
+    assertThat(second.get("nextCursor").isNull()).isTrue();
+  }
+
+  @Test
+  void statement_filters_by_booking_time_from_inclusive_to_exclusive() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    events.send(hourlyFundings(a, 30));
+    awaitStatementLines(customer, a, 30);
+
+    JsonNode page =
+        statementPage(
+            customer,
+            a,
+            "from",
+            HOUR_ZERO.plus(Duration.ofHours(11)).toString(),
+            "to",
+            HOUR_ZERO.plus(Duration.ofHours(21)).toString());
+
+    assertThat(entrySeqs(page)).containsExactly(20L, 19L, 18L, 17L, 16L, 15L, 14L, 13L, 12L, 11L);
+    assertThat(page.get("nextCursor").isNull()).isTrue();
+  }
+
+  @Test
+  void statement_from_after_to_is_refused() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+
+    customer
+        .get()
+        .uri(
+            "/v1/accounts/{id}/statement?from={from}&to={to}",
+            a.value(),
+            "2026-11-21T00:00:00Z",
+            "2026-11-20T00:00:00Z")
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/validation-failed");
+  }
+
+  /**
+   * Fundings of the Account of £1.00 each, the first booked at {@link #HOUR_ZERO} plus one hour
+   * with entry_seq 1, and each later one an hour later.
+   */
+  private TransactionPosted[] hourlyFundings(AccountId account, int count) {
+    TransactionPosted[] fundings = new TransactionPosted[count];
+    for (int seq = 1; seq <= count; seq++) {
+      fundings[seq - 1] =
+          TransactionPosted.funding(
+              HOUR_ZERO.plus(Duration.ofHours(seq)),
+              new EventEntry(counterparty, Side.DEBIT, 1_00, seq, seq * 1_00L),
+              new EventEntry(account, Side.CREDIT, 1_00, seq, seq * 1_00L));
+    }
+    return fundings;
+  }
+
+  private static List<Long> entrySeqs(JsonNode page) {
+    List<Long> seqs = new ArrayList<>();
+    page.get("lines").forEach(line -> seqs.add(line.get("entrySeq").asLong()));
+    return seqs;
   }
 
   private static boolean isLineOf(JsonNode line, TransactionPosted event) {
