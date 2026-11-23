@@ -12,6 +12,8 @@ import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.RequestHash;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -60,15 +62,18 @@ class PaymentRepository {
         .map(PaymentId::new);
   }
 
-  void markCompleted(PaymentId id) {
-    jdbc.sql(
+  /** Marks the Payment Completed and returns when it was. */
+  Instant markCompleted(PaymentId id) {
+    return jdbc.sql(
             """
             update payment
             set status = 'COMPLETED', completed_at = clock_timestamp()
             where id = :id
+            returning completed_at
             """)
         .param("id", id.value())
-        .update();
+        .query((rs, rowNum) -> rs.getObject("completed_at", OffsetDateTime.class).toInstant())
+        .single();
   }
 
   void markRejected(PaymentId id, RejectionReason reason) {
