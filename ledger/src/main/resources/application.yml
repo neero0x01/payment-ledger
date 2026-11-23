@@ -38,6 +38,13 @@ management:
       exposure:
         # Operators read the outbox lag and other gauges here (WebSecurity).
         include: health, metrics
+ledger:
+  read-model:
+    # The views module's read-only connection to the readmodel database, which the projector writes.
+    datasource:
+      url: ${READMODEL_DB_URL:jdbc:postgresql://localhost:5432/readmodel}
+      username: ${LEDGER_DB_USER:ledger}
+      password: ${LEDGER_DB_PASSWORD:ledger}
 server:
   servlet:
     session:

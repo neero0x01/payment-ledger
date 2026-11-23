@@ -10,3 +10,15 @@ spring:
     locations: classpath:db/readmodel
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: projector
+      # A new projector reads every event from the start of the topic.
+      auto-offset-reset: earliest
+      properties:
+        # The ledger creates its topics with their partitions and retention; subscribing must never
+        # create one with the broker's defaults.
+        allow.auto.create.topics: false
+logging:
+  level:
+    # The Kafka clients log their whole configuration at INFO whenever one starts.
+    org.apache.kafka: warn

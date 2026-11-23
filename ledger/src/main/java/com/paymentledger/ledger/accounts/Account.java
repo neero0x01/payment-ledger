@@ -14,6 +14,7 @@ import org.jspecify.annotations.Nullable;
  */
 public record Account(
     AccountId id,
+    String name,
     AccountKind kind,
     Side normalSide,
     Money overdraftLimit,
@@ -21,6 +22,7 @@ public record Account(
 
   public Account {
     Objects.requireNonNull(id, "id");
+    Objects.requireNonNull(name, "name");
     Objects.requireNonNull(kind, "kind");
     Objects.requireNonNull(normalSide, "normalSide");
     Objects.requireNonNull(overdraftLimit, "overdraftLimit");
