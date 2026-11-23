@@ -1,5 +1,7 @@
 package com.paymentledger.ledger.posting.internal;
 
+import com.paymentledger.ledger.posting.ReadModelBalance;
+import com.paymentledger.ledger.posting.ReadModelBalances;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import io.micrometer.core.instrument.Gauge;
@@ -10,6 +12,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -17,6 +20,10 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.RowCallbackHandler;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -27,8 +34,8 @@ import org.springframework.stereotype.Component;
  * since the last run equals the Σ of its Entries. Operators read the result of the last run in the
  * gauges ledger_balanced (1 or 0), ledger_imbalance_pence and ledger_balanced_last_run_seconds.
  *
- * <p>An Account found drifting is checked again on every later run until it no longer drifts, so
- * the gauges keep reporting drift that nothing touches again.
+ * <p>An Account found drifting, or trailed by the Read Model, is checked again on every later run
+ * until it no longer is, so the gauges keep reporting drift that nothing touches again.
  */
 @Component
 class BalancedCheck implements MeterBinder {
@@ -39,13 +46,19 @@ class BalancedCheck implements MeterBinder {
    */
   private static final Duration COMMIT_SLACK = Duration.ofSeconds(5);
 
+  private static final Logger log = LoggerFactory.getLogger(BalancedCheck.class);
+
   private final JdbcClient jdbc;
+  private final ReadModelBalances readModelBalances;
   private volatile Result last = Result.NOT_RUN;
   private @Nullable Instant lastStartedAt;
-  private Set<AccountId> drifting = Set.of();
 
-  BalancedCheck(JdbcClient jdbc) {
+  /** Accounts the last run found drifting, or trailed by the Read Model: checked on every run. */
+  private Set<AccountId> unproven = Set.of();
+
+  BalancedCheck(JdbcClient jdbc, ReadModelBalances readModelBalances) {
     this.jdbc = jdbc;
+    this.readModelBalances = readModelBalances;
   }
 
   @Override
@@ -69,20 +82,78 @@ class BalancedCheck implements MeterBinder {
     Instant startedAt =
         jdbc.sql("select clock_timestamp()").query(OffsetDateTime.class).single().toInstant();
     long imbalance = Math.abs(debitsMinusCredits());
-    Map<AccountId, Money> drifts;
+    Set<AccountId> accounts;
+    Map<AccountId, Money> storedDrifts;
     if (lastStartedAt == null) {
-      drifts = allStoredBalanceDrifts();
+      accounts = Set.copyOf(allAccountsWithBalances());
+      storedDrifts = allStoredBalanceDrifts();
     } else {
-      Set<AccountId> accounts = new HashSet<>(drifting);
+      accounts = new HashSet<>(unproven);
       accounts.addAll(touchedSince(lastStartedAt.minus(COMMIT_SLACK)));
-      drifts = storedBalanceDrifts(accounts);
+      storedDrifts = storedBalanceDrifts(accounts);
     }
-    for (Money drift : drifts.values()) {
+    ReadModelComparison readModel = compareWithReadModel(accounts);
+    for (Money drift : storedDrifts.values()) {
       imbalance += Math.abs(drift.pence());
     }
-    drifting = Set.copyOf(drifts.keySet());
+    for (Money drift : readModel.drifts().values()) {
+      imbalance += Math.abs(drift.pence());
+    }
+    Set<AccountId> stillUnproven = new HashSet<>(storedDrifts.keySet());
+    stillUnproven.addAll(readModel.drifts().keySet());
+    stillUnproven.addAll(readModel.trailing());
+    unproven = stillUnproven;
     lastStartedAt = startedAt;
     last = new Result(startedAt, imbalance);
+  }
+
+  /**
+   * Compares each Account's Read Model Balance with the write-side Balance after the same
+   * entry_seq, so a Read Model that only trails the ledger is no drift. An Account the Read Model
+   * trails is returned to be checked again once it catches up; so is every Account when the Read
+   * Model can't be read.
+   */
+  private ReadModelComparison compareWithReadModel(Set<AccountId> accounts) {
+    Map<AccountId, ReadModelBalance> projected;
+    try {
+      projected = readModelBalances.readModelBalancesOf(accounts);
+    } catch (DataAccessException e) {
+      log.warn("The balanced check could not read the Read Model: {}", e.getMessage());
+      return new ReadModelComparison(Map.of(), accounts);
+    }
+    Map<AccountId, WriteSideBalance> written = writeSideBalancesOf(accounts);
+    Map<AccountId, Money> drifts = new HashMap<>();
+    Set<AccountId> trailing = new HashSet<>();
+    Map<AccountId, ReadModelBalance> behind = new HashMap<>();
+    for (AccountId account : accounts) {
+      ReadModelBalance readModel = projected.get(account);
+      WriteSideBalance writeSide = written.get(account);
+      if (writeSide == null) {
+        continue;
+      }
+      if (readModel == null) {
+        trailing.add(account);
+      } else if (readModel.lastEntrySeq() >= writeSide.lastEntrySeq()) {
+        // Ahead of the ledger is drift too: the Read Model holds an Entry the ledger never posted.
+        Money drift = readModel.balance().plus(writeSide.balance().negate());
+        if (drift.pence() != 0 || readModel.lastEntrySeq() > writeSide.lastEntrySeq()) {
+          drifts.put(account, drift);
+        }
+      } else {
+        trailing.add(account);
+        behind.put(account, readModel);
+      }
+    }
+    Map<AccountId, Map<Long, Money>> balancesAfter = balancesAfter(behind);
+    behind.forEach((account, readModel) -> {
+      Money writeSide = balancesAfter.getOrDefault(account, Map.of()).get(readModel.lastEntrySeq());
+      Money drift =
+          writeSide == null ? readModel.balance() : readModel.balance().plus(writeSide.negate());
+      if (drift.pence() != 0) {
+        drifts.put(account, drift);
+      }
+    });
+    return new ReadModelComparison(drifts, trailing);
   }
 
   /** Σdebits − Σcredits over every Entry; zero in a Balanced Ledger. */
@@ -132,6 +203,69 @@ class BalancedCheck implements MeterBinder {
             .param("accountIds", accounts.stream().map(AccountId::value).toList()));
   }
 
+  /** Every Account with a balance row, which is every Account with an Entry. */
+  private List<AccountId> allAccountsWithBalances() {
+    return jdbc.sql("select account_id from account_balance")
+        .query((rs, rowNum) -> new AccountId(rs.getObject("account_id", UUID.class)))
+        .list();
+  }
+
+  /** The stored Balance of each of the Accounts, with the last entry_seq handed out. */
+  private Map<AccountId, WriteSideBalance> writeSideBalancesOf(Collection<AccountId> accounts) {
+    if (accounts.isEmpty()) {
+      return Map.of();
+    }
+    return jdbc
+        .sql(
+            """
+            select account_id, balance_pence, last_entry_seq
+            from account_balance
+            where account_id in (:accountIds)
+            """)
+        .param("accountIds", accounts.stream().map(AccountId::value).toList())
+        .query((rs, rowNum) ->
+            Map.entry(
+                new AccountId(rs.getObject("account_id", UUID.class)),
+                new WriteSideBalance(
+                    Money.ofPence(rs.getLong("balance_pence")), rs.getLong("last_entry_seq"))))
+        .list()
+        .stream()
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  /**
+   * The balance_after of the Entries at the Read Model's entry_seq of each Account, by Account and
+   * entry_seq. It reads a few more Entries than asked for, which the caller ignores.
+   */
+  private Map<AccountId, Map<Long, Money>> balancesAfter(Map<AccountId, ReadModelBalance> behind) {
+    if (behind.isEmpty()) {
+      return Map.of();
+    }
+    Map<AccountId, Map<Long, Money>> balances = new HashMap<>();
+    jdbc.sql(
+            """
+            select account_id, entry_seq, balance_after_pence
+            from entry
+            where account_id in (:accountIds)
+              and entry_seq in (:entrySeqs)
+            """)
+        .param("accountIds", behind.keySet().stream().map(AccountId::value).toList())
+        .param(
+            "entrySeqs",
+            behind.values().stream().map(ReadModelBalance::lastEntrySeq).distinct().toList())
+        .query(
+            (RowCallbackHandler)
+                rs ->
+                    balances
+                        .computeIfAbsent(
+                            new AccountId(rs.getObject("account_id", UUID.class)),
+                            id -> new HashMap<>())
+                        .put(
+                            rs.getLong("entry_seq"),
+                            Money.ofPence(rs.getLong("balance_after_pence"))));
+    return balances;
+  }
+
   /** {@link #storedBalanceDrifts} over every Account. */
   private Map<AccountId, Money> allStoredBalanceDrifts() {
     return toDrifts(
@@ -162,6 +296,15 @@ class BalancedCheck implements MeterBinder {
         .stream()
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
+
+  /** An Account's stored Balance and the last entry_seq handed out. */
+  private record WriteSideBalance(Money balance, long lastEntrySeq) {}
+
+  /**
+   * How far each drifting Read Model Balance is from the write side, and the Accounts the Read
+   * Model trails.
+   */
+  private record ReadModelComparison(Map<AccountId, Money> drifts, Set<AccountId> trailing) {}
 
   /** What a run found; before the first run, NaN gauges with a last run at the epoch. */
   private record Result(Instant startedAt, long imbalancePence) {
