@@ -1,21 +1,115 @@
 /**
- * A stand-in for the ledger HTTP API, installed as the global fetch. It keeps Balances in pence and
- * applies Internal Transfers the way the ledger does, so page tests drive the real request flow. Like
- * the ledger, it answers 401 until the Customer logs in, sets the CSRF token as the XSRF-TOKEN
- * cookie (replacing it at login), and refuses a POST whose X-XSRF-TOKEN header doesn't match.
+ * A stand-in for the ledger HTTP API, installed as the global fetch, so screen tests drive the real
+ * request flow. Like the ledger, it answers 401 until the Customer logs in, sets the CSRF token as the
+ * XSRF-TOKEN cookie (replacing it at login), and refuses a POST whose X-XSRF-TOKEN header doesn't
+ * match.
+ *
+ * It keeps Entries per Account and derives everything from them: the ledger's Balance and As-At
+ * Balance from all Entries, and the Read Model (GET /v1/accounts, the Statement) from the Entries
+ * projected so far. With `trailing: true` new Entries stay unprojected until `project()` is called,
+ * so tests can show the Read Model trailing the ledger.
  */
-export function installFakeLedger(
+
+export type FakeAccount = {
+  id: string;
+  name: string;
+  kind?: "CUSTOMER" | "INTERNAL";
+  overdraftLimitPence?: number;
+};
+
+export type FakeEntry = {
+  accountId: string;
+  bookingTime: string;
+  side: "DEBIT" | "CREDIT";
+  amountPence: number;
+  counterpartyAccountId?: string | null;
+};
+
+type BookedEntry = FakeEntry & {
+  transactionId: string;
+  entrySeq: number;
+  balanceAfterPence: number;
+};
+
+export const STATEMENT_PAGE_SIZE = 50;
+
+/** Credit-normal Customer Accounts, each funded with one Entry booked at the given moment. */
+export function funded(
   balances: Record<string, number>,
+  bookingTime = "2026-11-01T09:00:00Z",
+): FakeEntry[] {
+  return Object.entries(balances)
+    .filter(([, pence]) => pence > 0)
+    .map(([accountId, amountPence]) => ({
+      accountId,
+      bookingTime,
+      side: "CREDIT",
+      amountPence,
+      counterpartyAccountId: null,
+    }));
+}
+
+export function installFakeLedger({
+  accounts,
+  entries = [],
+  trailing = false,
   credentials = { username: "local-customer", password: "local-customer" },
-) {
+}: {
+  accounts: FakeAccount[];
+  entries?: FakeEntry[];
+  trailing?: boolean;
+  credentials?: { username: string; password: string };
+}) {
   const requests: {
     method: string;
     url: string;
     headers: Headers;
     body: unknown;
   }[] = [];
+  const booked: BookedEntry[] = [];
+  let projected = 0;
+  let transactions = 0;
   let loggedIn = false;
   let csrfToken = "csrf-before-login";
+
+  function book(entry: FakeEntry, transactionId: string) {
+    const previous = booked.filter((e) => e.accountId === entry.accountId);
+    const before = previous.at(-1)?.balanceAfterPence ?? 0;
+    booked.push({
+      ...entry,
+      counterpartyAccountId: entry.counterpartyAccountId ?? null,
+      transactionId,
+      entrySeq: previous.length + 1,
+      balanceAfterPence:
+        before + (entry.side === "CREDIT" ? entry.amountPence : -entry.amountPence),
+    });
+  }
+  function nextTransactionId() {
+    transactions += 1;
+    return `019a0000-0000-7000-9000-${String(transactions).padStart(12, "0")}`;
+  }
+  function project() {
+    projected = booked.length;
+  }
+  for (const entry of entries) book(entry, nextTransactionId());
+  project();
+
+  const balanceOf = (accountId: string, of: BookedEntry[]) =>
+    of.filter((e) => e.accountId === accountId).at(-1)?.balanceAfterPence ?? 0;
+  const readModel = () => booked.slice(0, projected);
+  const accountView = (account: FakeAccount) => {
+    const balancePence = balanceOf(account.id, readModel());
+    const overdraftLimitPence = account.overdraftLimitPence ?? 0;
+    return {
+      id: account.id,
+      name: account.name,
+      kind: account.kind ?? "CUSTOMER",
+      balancePence,
+      overdraftLimitPence,
+      availableBalancePence: balancePence + overdraftLimitPence,
+    };
+  };
+
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), {
       status,
@@ -30,8 +124,40 @@ export function installFakeLedger(
     document.cookie = `XSRF-TOKEN=${csrfToken}; path=/`;
   };
 
+  function statement(accountId: string, query: URLSearchParams) {
+    const from = query.get("from");
+    const to = query.get("to");
+    const lines = readModel()
+      .filter((e) => e.accountId === accountId)
+      .filter((e) => !from || Date.parse(e.bookingTime) >= Date.parse(from))
+      .filter((e) => !to || Date.parse(e.bookingTime) < Date.parse(to))
+      .sort(
+        (a, b) =>
+          Date.parse(b.bookingTime) - Date.parse(a.bookingTime) ||
+          b.entrySeq - a.entrySeq,
+      );
+    const start = Number(query.get("cursor") ?? 0);
+    const page = lines.slice(start, start + STATEMENT_PAGE_SIZE);
+    const next = start + STATEMENT_PAGE_SIZE;
+    return {
+      accountId,
+      lines: page.map((e) => ({
+        transactionId: e.transactionId,
+        bookingTime: e.bookingTime,
+        entrySeq: e.entrySeq,
+        side: e.side,
+        amountPence: e.amountPence,
+        balanceAfterPence: e.balanceAfterPence,
+        counterpartyAccountId: e.counterpartyAccountId,
+      })),
+      nextCursor: next < lines.length ? String(next) : null,
+    };
+  }
+
   const fetch = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = input.toString();
+    const [path = "", search = ""] = url.split("?");
+    const query = new URLSearchParams(search);
     const method = init.method ?? "GET";
     const headers = new Headers(init.headers);
     const body =
@@ -46,7 +172,7 @@ export function installFakeLedger(
     if (method === "POST" && headers.get("X-XSRF-TOKEN") !== csrfToken) {
       return problem(403);
     }
-    if (method === "POST" && url === "/v1/sessions") {
+    if (method === "POST" && path === "/v1/sessions") {
       if (
         body.username !== credentials.username ||
         body.password !== credentials.password
@@ -60,21 +186,52 @@ export function installFakeLedger(
     }
     if (!loggedIn) return problem(401);
 
-    if (method === "GET" && url === "/v1/session") {
+    if (method === "GET" && path === "/v1/session") {
       return json(200, { role: "CUSTOMER" });
     }
-    const balance = url.match(/^\/v1\/accounts\/([^/]+)\/balance$/);
-    const accountId = balance?.[1];
-    if (method === "GET" && accountId) {
-      if (!(accountId in balances)) return json(404, { status: 404 });
-      return json(200, { accountId, balancePence: balances[accountId] });
+    if (method === "GET" && path === "/v1/accounts") {
+      return json(200, accounts.map(accountView));
     }
-    if (method === "POST" && url === "/v1/payments") {
+    const [, accountId, resource] =
+      path.match(/^\/v1\/accounts\/([^/]+)(?:\/(balance|statement))?$/) ?? [];
+    const account = accounts.find((a) => a.id === accountId);
+    if (method === "GET" && accountId) {
+      if (!account) return problem(404);
+      if (resource === "statement") return json(200, statement(account.id, query));
+      if (resource === "balance") {
+        const asAt = query.get("asAt");
+        const upTo = asAt
+          ? booked.filter((e) => Date.parse(e.bookingTime) <= Date.parse(asAt))
+          : booked;
+        return json(200, { accountId, balancePence: balanceOf(account.id, upTo) });
+      }
+      return json(200, accountView(account));
+    }
+    if (method === "POST" && path === "/v1/payments") {
       const { debtorAccountId, payee, amountPence } = body;
-      balances[debtorAccountId] =
-        (balances[debtorAccountId] ?? 0) - amountPence;
-      balances[payee.accountId] =
-        (balances[payee.accountId] ?? 0) + amountPence;
+      const transactionId = nextTransactionId();
+      const bookingTime = new Date().toISOString();
+      book(
+        {
+          accountId: debtorAccountId,
+          bookingTime,
+          side: "DEBIT",
+          amountPence,
+          counterpartyAccountId: payee.accountId,
+        },
+        transactionId,
+      );
+      book(
+        {
+          accountId: payee.accountId,
+          bookingTime,
+          side: "CREDIT",
+          amountPence,
+          counterpartyAccountId: debtorAccountId,
+        },
+        transactionId,
+      );
+      if (!trailing) project();
       return json(201, {
         id: "019a0000-0000-7000-8000-0000000000ff",
         type: "INTERNAL_TRANSFER",
@@ -82,12 +239,12 @@ export function installFakeLedger(
         debtorAccountId,
         payee,
         amountPence,
-        transactionIds: [],
+        transactionIds: [transactionId],
       });
     }
-    return json(404, { status: 404 });
+    return problem(404);
   };
 
   vi.stubGlobal("fetch", fetch);
-  return { requests };
+  return { requests, project };
 }
