@@ -2,6 +2,7 @@ package com.paymentledger.ledger.payments.internal;
 
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.KeyedPayment;
@@ -19,6 +20,7 @@ import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
+import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,11 +37,13 @@ class PaymentService {
   private final PaymentRepository payments;
   private final Posting posting;
   private final Accounts accounts;
+  private final Outbox outbox;
 
-  PaymentService(PaymentRepository payments, Posting posting, Accounts accounts) {
+  PaymentService(PaymentRepository payments, Posting posting, Accounts accounts, Outbox outbox) {
     this.payments = payments;
     this.posting = posting;
     this.accounts = accounts;
+    this.outbox = outbox;
   }
 
   /**
@@ -95,8 +99,10 @@ class PaymentService {
         NewTransaction.forPayment(
             id,
             List.of(new Entry(debtor, Side.DEBIT, amount), new Entry(payee, Side.CREDIT, amount))));
-    payments.markCompleted(id);
-    return IdempotentOutcome.first(payments.find(id).orElseThrow());
+    Instant completedAt = payments.markCompleted(id);
+    Payment completed = payments.find(id).orElseThrow();
+    outbox.append(PaymentStatusChangedEvent.of(completed, completedAt));
+    return IdempotentOutcome.first(completed);
   }
 
   /** The Payment made with the key, unless it was made by a different request. */
