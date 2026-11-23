@@ -3,6 +3,7 @@ package com.paymentledger.ledger;
 import static com.paymentledger.ledger.ReadEndpoints.accounts;
 import static com.paymentledger.ledger.ReadEndpoints.statementLines;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.awaitility.Awaitility.await;
 
 import com.paymentledger.ledger.shared.AccountId;
@@ -69,6 +70,18 @@ class ReadModelRebuildTest {
     breakReadModel();
     ProjectorConfiguration.run(postgres, kafka, "--rebuild").close();
 
+    assertThat(readModel(operator)).isEqualTo(live);
+  }
+
+  @Test
+  void rebuild_is_refused_while_the_projector_is_consuming() {
+    RestTestClient operator = sessions.operator();
+    postPaymentsAndACorrection(operator);
+    Map<String, JsonNode> live = readModel(operator);
+
+    assertThatThrownBy(() -> ProjectorConfiguration.run(postgres, kafka, "--rebuild"))
+        .rootCause()
+        .hasMessageContaining("Stop the projector");
     assertThat(readModel(operator)).isEqualTo(live);
   }
 
