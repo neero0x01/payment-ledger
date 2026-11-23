@@ -165,3 +165,33 @@ test("the Statement pages through Statement Lines 50 at a time", async () => {
 
   await waitFor(async () => expect(await statementLines()).toHaveLength(50));
 });
+
+test("the As-At Balance shows the Balance at a chosen moment", async () => {
+  installFakeLedger({ accounts, entries: history });
+  const user = userEvent.setup();
+  const { router } = renderApp(`/accounts/${ACCOUNT_A.id}`);
+  await logIn(user);
+  const asAtBalance = await screen.findByRole("region", {
+    name: "As-At Balance",
+  });
+
+  await typeDate(user, "As at", "031120261015");
+
+  expect(await within(asAtBalance).findByText("£70.00")).toBeInTheDocument();
+  expect(router.state.location.search).toEqual({
+    asAt: "2026-11-03T10:15:00.000Z",
+  });
+});
+
+test("an As-At Balance link opens at that moment", async () => {
+  installFakeLedger({ accounts, entries: history });
+  const user = userEvent.setup();
+  renderApp(`/accounts/${ACCOUNT_A.id}?asAt=2026-11-03T10:14:00.000Z`);
+  await logIn(user);
+
+  const asAtBalance = await screen.findByRole("region", {
+    name: "As-At Balance",
+  });
+  expect(await within(asAtBalance).findByText("£100.00")).toBeInTheDocument();
+  expect(dateField("As at")).toHaveValue("03/11/2026 10:14");
+});
