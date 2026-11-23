@@ -50,10 +50,15 @@ class PaymentController {
     CustomerId customer =
         principal.customerId().orElseThrow(() -> Problem.forbidden("Only Customers make Payments"));
     IdempotencyKey key = IdempotencyKey.fromHeader(idempotencyKey);
-    AccountId debtor = new AccountId(request.debtorAccountId());
+    UUID debtorAccountId = request.debtorAccountId();
+    PayeeBody payeeBody = request.payee();
+    if (debtorAccountId == null || payeeBody == null) {
+      throw Problem.validationFailed("A Payment needs a debtorAccountId and a payee");
+    }
+    AccountId debtor = new AccountId(debtorAccountId);
     Money amount = Money.ofPence(request.amountPence());
     IdempotentOutcome<Payment> made =
-        switch (request.payee().toPayee()) {
+        switch (payeeBody.toPayee()) {
           case Payee.AtTheFintech payee ->
               payments.makeInternalTransfer(customer, key, debtor, payee.account(), amount);
           case Payee.AtAnotherBank payee ->
@@ -82,7 +87,8 @@ class PaymentController {
     return PaymentResponse.of(payment, posting.transactionsOf(payment.id()));
   }
 
-  record PaymentRequest(UUID debtorAccountId, PayeeBody payee, long amountPence) {}
+  record PaymentRequest(
+      @Nullable UUID debtorAccountId, @Nullable PayeeBody payee, long amountPence) {}
 
   /**
    * A Payee as the API sends it: {@code {accountId}} for an Account at the fintech, or {@code
