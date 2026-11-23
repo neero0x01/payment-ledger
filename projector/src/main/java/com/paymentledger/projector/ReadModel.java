@@ -65,6 +65,10 @@ class ReadModel {
         .update();
   }
 
+  /**
+   * Moves the Account's Balance to the Entry's balance_after only if the Entry comes later in the
+   * Account's sequence than the last one applied, so events may arrive in any order.
+   */
   private void updateBalance(PostedEntry entry) {
     jdbc.sql(
             """
@@ -74,6 +78,7 @@ class ReadModel {
             set balance_pence = excluded.balance_pence,
                 last_entry_seq = excluded.last_entry_seq,
                 updated_at = clock_timestamp()
+            where account_balance_view.last_entry_seq < excluded.last_entry_seq
             """)
         .param("accountId", entry.accountId())
         .param("balanceAfterPence", entry.balanceAfterPence())
