@@ -50,10 +50,14 @@ class SchemeCallbackController {
       @RequestHeader(name = SIGNATURE_HEADER, required = false) @Nullable String signature,
       @RequestBody byte[] body) {
     requireSignedByTheScheme(body, signature);
-    Pacs002Lite callback;
+    @Nullable Pacs002Lite callback;
     try {
       callback = json.readValue(body, Pacs002Lite.class);
     } catch (JacksonException e) {
+      throw Problem.validationFailed("A Scheme Outcome is a pacs.002-lite JSON object");
+    }
+    if (callback == null) {
+      // The JSON literal null reads as no object at all.
       throw Problem.validationFailed("A Scheme Outcome is a pacs.002-lite JSON object");
     }
     payments.recordSchemeOutcome(callback.toSchemeOutcome());
