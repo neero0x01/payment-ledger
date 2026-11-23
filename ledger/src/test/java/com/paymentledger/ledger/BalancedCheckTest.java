@@ -8,9 +8,14 @@ import com.paymentledger.ledger.TransactionPostedProducer.TransactionPosted;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Side;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.MethodOrderer;
 import org.junit.jupiter.api.Order;
 import org.junit.jupiter.api.Test;
@@ -25,6 +30,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * The balanced check (spec §13): every interval it proves Σdebits = Σcredits, that the stored
@@ -59,6 +65,7 @@ class BalancedCheckTest {
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
   @Autowired TransactionPostedProducer events;
+  @Autowired PostgreSQLContainer postgres;
 
   @Autowired
   @Qualifier(ProjectorConfiguration.PROJECTOR)
@@ -120,6 +127,47 @@ class BalancedCheckTest {
     awaitReadModelBalance(customer, a, 123_45);
     // The ledger's own entry_seq 2 leaves a at £90.00.
     transfer(customer, a, b, 10_00);
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+
+    assertThat(BalancedCheckGauges.balanced(operator)).isZero();
+    assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 33_45);
+  }
+
+  @Test
+  @Order(4)
+  void drift_on_an_account_touched_by_a_posting_that_commits_long_after_it_started_is_detected()
+      throws Exception {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    RestTestClient operator = sessions.operator();
+    awaitReadModelBalance(customer, a, 100_00);
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+    long before = BalancedCheckGauges.imbalancePence(operator);
+
+    try (Connection outboxHolder =
+        DriverManager.getConnection(
+            postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+      outboxHolder.setAutoCommit(false);
+      try (Statement statement = outboxHolder.createStatement()) {
+        // Holds up the Payment after it has changed a's balance row, as it appends its events.
+        statement.execute("lock table outbox in share mode");
+      }
+      CompletableFuture<Void> payment =
+          CompletableFuture.runAsync(() -> transfer(customer, a, b, 10_00));
+      Thread.sleep(7_000);
+      // A TransactionPosted the ledger never posted claims a's entry_seq 2 left it at £123.45.
+      events.send(
+          TransactionPosted.funding(
+              Instant.now(),
+              new EventEntry(new AccountId(UUID.randomUUID()), Side.DEBIT, 23_45, 1, 23_45),
+              new EventEntry(a, Side.CREDIT, 23_45, 2, 123_45)));
+      awaitReadModelBalance(customer, a, 123_45);
+      BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+      outboxHolder.commit();
+      payment.get(30, TimeUnit.SECONDS);
+    }
+    // The Payment, committed only now, leaves a at £90.00 after entry_seq 2.
     BalancedCheckGauges.awaitRunStartedAfterNow(operator);
 
     assertThat(BalancedCheckGauges.balanced(operator)).isZero();
