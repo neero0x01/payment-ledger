@@ -1,18 +1,26 @@
 package com.paymentledger.projector;
 
+import java.util.Arrays;
+import org.springframework.boot.SpringApplication;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
+import org.springframework.context.ConfigurableApplicationContext;
 
 /**
  * The projector: a headless service that builds the Read Model in the {@code readmodel} database
- * from the ledger's Kafka events (ADR 0002).
+ * from the ledger's Kafka events (ADR 0002). Run with {@code --rebuild}, it rebuilds the Read Model
+ * by replaying Kafka and exits.
  */
 @SpringBootApplication
 public class ProjectorApplication {
 
   public static void main(String[] args) {
-    application().run(args);
+    ConfigurableApplicationContext projector = application().run(args);
+    if (Arrays.asList(args).contains("--" + Rebuild.OPTION)) {
+      // A one-off command: exit once the Read Model is rebuilt.
+      System.exit(SpringApplication.exit(projector));
+    }
   }
 
   /**

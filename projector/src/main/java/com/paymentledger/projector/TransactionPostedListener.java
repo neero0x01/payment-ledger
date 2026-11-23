@@ -18,7 +18,10 @@ class TransactionPostedListener {
     this.readModel = readModel;
   }
 
-  @KafkaListener(topics = TOPIC)
+  /** Not while the projector is run with --rebuild, which replays the topic itself. */
+  @KafkaListener(
+      topics = TOPIC,
+      autoStartup = "#{!environment.containsProperty('" + Rebuild.OPTION + "')}")
   void on(String event) {
     readModel.apply(json.readValue(event, TransactionPosted.class));
   }
