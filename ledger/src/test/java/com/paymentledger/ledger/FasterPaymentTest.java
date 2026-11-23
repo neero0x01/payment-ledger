@@ -13,7 +13,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +22,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.client.RestTestClient;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Scenario 6: Outbound Faster Payment [M5], with an in-memory fake PaymentScheme. */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -36,6 +36,8 @@ import org.springframework.test.web.servlet.client.RestTestClient;
   PaymentStatusChangedEvents.class
 })
 class FasterPaymentTest {
+
+  static final JsonMapper JSON = JsonMapper.builder().build();
 
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
@@ -189,12 +191,13 @@ class FasterPaymentTest {
         .atMost(Duration.ofSeconds(30))
         .untilAsserted(() ->
             assertThat(statusEvents.publishedFor(new PaymentId(pending.id())))
-                .extracting(ConsumerRecord::value)
-                .anySatisfy(event ->
-                    assertThat(event)
-                        .contains("\"status\":\"REJECTED\"")
-                        .contains("\"rejectionReason\":\"SCHEME_REJECTED\"")
-                        .contains("\"schemeReasonCode\":\"AC01\"")));
+                .extracting(event -> JSON.readTree(event.value()).get("payload"))
+                .anySatisfy(payload -> {
+                  assertThat(payload.get("status").asString()).isEqualTo("REJECTED");
+                  assertThat(payload.get("rejectionReason").asString())
+                      .isEqualTo("SCHEME_REJECTED");
+                  assertThat(payload.get("schemeReasonCode").asString()).isEqualTo("AC01");
+                }));
   }
 
   @Test

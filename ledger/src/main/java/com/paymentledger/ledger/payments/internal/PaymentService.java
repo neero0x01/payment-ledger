@@ -9,6 +9,7 @@ import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.payments.SchemeOutcome;
+import com.paymentledger.ledger.payments.SchemeReasonCode;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.InsertedPayment;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.KeyedPayment;
 import com.paymentledger.ledger.payments.internal.PaymentRepository.PaymentMadeWithKey;
@@ -25,6 +26,7 @@ import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
+import com.paymentledger.ledger.shared.TransactionId;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
@@ -150,8 +152,9 @@ class PaymentService {
 
   /**
    * Records the Scheme Outcome of a Pending Faster Payment: an accepted one makes it Completed with
-   * no further Transaction, because the money stays in FPS Clearing. An outcome for a Payment that
-   * is no longer Pending changes nothing. Refuses an unknown End-to-End Id as not-found.
+   * no further Transaction, because the money stays in FPS Clearing; a Scheme Rejection makes it
+   * Rejected and posts a Reversal. An outcome for a Payment that is no longer Pending changes
+   * nothing. Refuses an unknown End-to-End Id as not-found.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
   void recordSchemeOutcome(SchemeOutcome outcome) {
@@ -164,11 +167,24 @@ class PaymentService {
     if (payment.status() != PaymentStatus.PENDING) {
       return;
     }
-    if (outcome.status() == SchemeOutcome.Status.ACSC) {
-      Instant completedAt = payments.markCompleted(payment.id());
-      outbox.append(
-          PaymentStatusChangedEvent.of(payments.find(payment.id()).orElseThrow(), completedAt));
-    }
+    Instant changedAt =
+        switch (outcome.status()) {
+          case ACSC -> payments.markCompleted(payment.id());
+          case RJCT -> rejectAndReverse(payment, outcome.rejection().orElseThrow());
+        };
+    outbox.append(
+        PaymentStatusChangedEvent.of(payments.find(payment.id()).orElseThrow(), changedAt));
+  }
+
+  /**
+   * Rejects the Faster Payment for the Scheme Rejection and posts the Reversal of its Transaction,
+   * which returns the money from FPS Clearing to the payer. Returns when it was Rejected.
+   */
+  private Instant rejectAndReverse(Payment payment, SchemeReasonCode reasonCode) {
+    Instant rejectedAt = payments.markSchemeRejected(payment.id(), reasonCode);
+    TransactionId original = posting.transactionsOf(payment.id()).getFirst();
+    posting.post(NewTransaction.reversal(posting.find(original).orElseThrow()));
+    return rejectedAt;
   }
 
   private static void requireAllowedAmount(Money amount) {
