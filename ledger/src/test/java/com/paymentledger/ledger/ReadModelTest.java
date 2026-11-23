@@ -109,6 +109,33 @@ class ReadModelTest {
     assertThat(onlyAccount(accounts(customer)).get("balancePence").asLong()).isEqualTo(120_00);
   }
 
+  @Test
+  void events_out_of_order_leave_the_balance_after_the_highest_entry_seq() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    TransactionPosted first =
+        TransactionPosted.funding(
+            Instant.parse("2026-11-20T10:00:00Z"),
+            new EventEntry(counterparty, Side.DEBIT, 100_00, 1, 100_00),
+            new EventEntry(a, Side.CREDIT, 100_00, 1, 100_00));
+    TransactionPosted second =
+        TransactionPosted.funding(
+            Instant.parse("2026-11-20T11:00:00Z"),
+            new EventEntry(counterparty, Side.DEBIT, 20_00, 2, 120_00),
+            new EventEntry(a, Side.CREDIT, 20_00, 2, 120_00));
+    TransactionPosted third =
+        TransactionPosted.funding(
+            Instant.parse("2026-11-20T12:00:00Z"),
+            new EventEntry(counterparty, Side.DEBIT, 3_00, 3, 123_00),
+            new EventEntry(a, Side.CREDIT, 3_00, 3, 123_00));
+
+    events.sendToOnePartition(third, first, second);
+
+    List<JsonNode> lines = awaitStatementLines(customer, a, 3);
+    assertThat(lines).extracting(line -> line.get("entrySeq").asLong()).containsExactly(3L, 2L, 1L);
+    assertThat(onlyAccount(accounts(customer)).get("balancePence").asLong()).isEqualTo(123_00);
+  }
+
   private static boolean isLineOf(JsonNode line, TransactionPosted event) {
     return line.get("transactionId").asString().equals(event.transaction().value().toString());
   }
