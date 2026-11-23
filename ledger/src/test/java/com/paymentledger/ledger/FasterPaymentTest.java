@@ -3,6 +3,7 @@ package com.paymentledger.ledger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
+import com.paymentledger.ledger.payments.EndToEndId;
 import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.SchemeSubmission;
 import com.paymentledger.ledger.shared.AccountId;
@@ -28,13 +29,15 @@ import org.springframework.test.web.servlet.client.RestTestClient;
   TestcontainersConfiguration.class,
   LedgerFixture.class,
   Sessions.class,
-  FakePaymentScheme.class
+  FakePaymentScheme.class,
+  SchemeCallbacks.class
 })
 class FasterPaymentTest {
 
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
   @Autowired FakePaymentScheme scheme;
+  @Autowired SchemeCallbacks callbacks;
 
   AccountId a;
   String payeeAccountNumber;
@@ -126,6 +129,23 @@ class FasterPaymentTest {
     List<FakePaymentScheme.Received> submissions = scheme.submissionsTo(payeeAccountNumber);
     assertThat(submissions).hasSize(2);
     assertThat(submissions.stream().map(r -> r.submission().endToEndId()).distinct()).hasSize(2);
+  }
+
+  @Test
+  void accepted_scheme_outcome_completes_the_payment_and_posts_no_new_transaction() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    long fpsClearingAfterPayment = balancePenceOf(ledger.fpsClearing());
+
+    callbacks.accept(endToEndId).expectStatus().isOk();
+
+    PaymentView completed = payment(pending.id());
+    assertThat(completed.status()).isEqualTo("COMPLETED");
+    assertThat(completed.rejectionReason()).isNull();
+    assertThat(completed.transactionIds()).isEqualTo(pending.transactionIds());
+    // The money stays in FPS Clearing: settlement is out of scope.
+    assertThat(balancePenceOf(a)).isEqualTo(60_00);
+    assertThat(balancePenceOf(ledger.fpsClearing())).isEqualTo(fpsClearingAfterPayment);
   }
 
   @Test
