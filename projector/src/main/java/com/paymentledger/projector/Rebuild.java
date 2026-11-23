@@ -4,16 +4,21 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.common.TopicPartition;
+import org.apache.kafka.common.errors.GroupIdNotFoundException;
 import org.apache.kafka.common.serialization.StringDeserializer;
 import org.flywaydb.core.Flyway;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.kafka.core.ConsumerFactory;
+import org.springframework.kafka.core.KafkaAdmin;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.json.JsonMapper;
@@ -39,6 +44,7 @@ class Rebuild implements ApplicationRunner {
   private final ReadModel readModel;
   private final JsonMapper json;
   private final ConsumerFactory<?, ?> consumers;
+  private final KafkaAdmin kafkaAdmin;
 
   Rebuild(
       Flyway flyway,
@@ -46,13 +52,15 @@ class Rebuild implements ApplicationRunner {
       TransactionTemplate transaction,
       ReadModel readModel,
       JsonMapper json,
-      ConsumerFactory<?, ?> consumers) {
+      ConsumerFactory<?, ?> consumers,
+      KafkaAdmin kafkaAdmin) {
     this.flyway = flyway;
     this.jdbc = jdbc;
     this.transaction = transaction;
     this.readModel = readModel;
     this.json = json;
     this.consumers = consumers;
+    this.kafkaAdmin = kafkaAdmin;
   }
 
   @Override
@@ -60,9 +68,36 @@ class Rebuild implements ApplicationRunner {
     if (!args.containsOption(OPTION)) {
       return;
     }
+    refuseWhileTheProjectorIsConsuming();
     createFreshTables();
     replay(TransactionPostedListener.TOPIC);
     swapIn();
+  }
+
+  /**
+   * Fails if the projector's consumer group has members: a live projector would go on applying
+   * events past the replay's end offsets to the tables about to be replaced, and commit offsets
+   * past them, so the rebuilt Read Model would never get them.
+   */
+  private void refuseWhileTheProjectorIsConsuming() {
+    String group =
+        (String) consumers.getConfigurationProperties().get(ConsumerConfig.GROUP_ID_CONFIG);
+    try (Admin admin = Admin.create(kafkaAdmin.getConfigurationProperties())) {
+      ConsumerGroupDescription description =
+          admin.describeConsumerGroups(List.of(group)).describedGroups().get(group).get();
+      if (!description.members().isEmpty()) {
+        throw new IllegalStateException(
+            "Stop the projector before rebuilding: consumer group %s has %d members"
+                .formatted(group, description.members().size()));
+      }
+    } catch (ExecutionException e) {
+      if (!(e.getCause() instanceof GroupIdNotFoundException)) {
+        throw new IllegalStateException(e);
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException(e);
+    }
   }
 
   /** The Read Model's tables, empty, from the same migrations as the live ones. */

@@ -80,7 +80,6 @@ class ReadModelRebuildTest {
     Map<String, JsonNode> live = readModel(operator);
 
     assertThatThrownBy(() -> ProjectorConfiguration.run(postgres, kafka, "--rebuild"))
-        .rootCause()
         .hasMessageContaining("Stop the projector");
     assertThat(readModel(operator)).isEqualTo(live);
   }
