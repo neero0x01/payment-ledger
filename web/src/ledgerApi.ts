@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query";
+import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 /** Live views poll the ledger this often. */
 export const POLL_INTERVAL_MS = 2_000;
@@ -133,13 +133,17 @@ export type StatementPage = {
 /** A Statement's Booking Time range: from inclusive, to exclusive, both optional. */
 export type StatementRange = { from?: string; to?: string };
 
+/** An Account's Statement, a page of 50 Statement Lines at a time, each page reached by a cursor. */
 export const statementQuery = (accountId: string, range: StatementRange) =>
-  queryOptions({
+  infiniteQueryOptions({
     queryKey: ["accounts", accountId, "statement", range],
-    queryFn: () => {
+    initialPageParam: null as string | null,
+    getNextPageParam: (page: StatementPage) => page.nextCursor,
+    queryFn: ({ pageParam }) => {
       const query = new URLSearchParams();
       if (range.from) query.set("from", range.from);
       if (range.to) query.set("to", range.to);
+      if (pageParam) query.set("cursor", pageParam);
       const search = query.size > 0 ? `?${query}` : "";
       return getJson<StatementPage>(
         `/v1/accounts/${accountId}/statement${search}`,

@@ -1,15 +1,17 @@
 import { Alert, Paper, Stack, Typography } from "@mui/material";
 import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import dayjs from "dayjs";
+import { useState } from "react";
 import { asDate, bookingTimeRange } from "./accountSearch";
 import {
   accountQuery,
   accountsQuery,
   type StatementLine,
   statementQuery,
+  type StatementRange,
 } from "./ledgerApi";
 import { formatPence } from "./money";
 
@@ -35,14 +37,100 @@ export function AccountDetailScreen() {
 function Statement({ accountId }: { accountId: string }) {
   const search = route.useSearch();
   const navigate = route.useNavigate();
-  const statement = useQuery(
-    statementQuery(accountId, bookingTimeRange(search)),
+  const range = bookingTimeRange(search);
+
+  return (
+    <Stack spacing={1}>
+      <Typography variant="h5" component="h2">
+        Statement
+      </Typography>
+      <Stack direction="row" spacing={2}>
+        <DatePicker
+          label="From"
+          value={search.from ? dayjs(search.from) : null}
+          maxDate={search.to ? dayjs(search.to) : undefined}
+          onChange={(value) => {
+            if (value && !value.isValid()) return;
+            void navigate({
+              search: (prev) => ({ ...prev, from: asDate(value) }),
+            });
+          }}
+        />
+        <DatePicker
+          label="To"
+          value={search.to ? dayjs(search.to) : null}
+          minDate={search.from ? dayjs(search.from) : undefined}
+          onChange={(value) => {
+            if (value && !value.isValid()) return;
+            void navigate({
+              search: (prev) => ({ ...prev, to: asDate(value) }),
+            });
+          }}
+        />
+      </Stack>
+      <StatementGrid
+        // A new range starts again from its first page.
+        key={JSON.stringify(range)}
+        accountId={accountId}
+        range={range}
+      />
+    </Stack>
   );
+}
+
+const PAGE_SIZE = 50;
+
+function StatementGrid({
+  accountId,
+  range,
+}: {
+  accountId: string;
+  range: StatementRange;
+}) {
+  const statement = useInfiniteQuery(statementQuery(accountId, range));
   const accounts = useQuery(accountsQuery());
+  const [page, setPage] = useState(0);
+  const pages = statement.data?.pages ?? [];
+  // While the next page loads, the last one loaded still says whether there is one.
+  const hasNextPage = page < pages.length - 1 || statement.hasNextPage;
   const nameOf = (id: string | null) =>
     id === null ? "" : (accounts.data?.find((a) => a.id === id)?.name ?? id);
+  const columns = statementColumns(nameOf);
 
-  const columns: GridColDef<StatementLine>[] = [
+  return (
+    <>
+      {statement.isError && (
+        <Alert severity="error">The Statement is unavailable.</Alert>
+      )}
+      <Paper>
+        <DataGrid
+          aria-label="Statement"
+          rows={pages[page]?.lines ?? []}
+          getRowId={(line) => line.entrySeq}
+          columns={columns}
+          loading={statement.isPending || statement.isFetchingNextPage}
+          paginationMode="server"
+          paginationModel={{ page, pageSize: PAGE_SIZE }}
+          pageSizeOptions={[PAGE_SIZE]}
+          rowCount={-1}
+          paginationMeta={{ hasNextPage }}
+          onPaginationModelChange={(model) => {
+            if (model.page >= pages.length) void statement.fetchNextPage();
+            setPage(model.page);
+          }}
+          disableColumnFilter
+          disableColumnSorting
+          disableRowSelectionOnClick
+        />
+      </Paper>
+    </>
+  );
+}
+
+function statementColumns(
+  nameOf: (id: string | null) => string,
+): GridColDef<StatementLine>[] {
+  return [
     {
       field: "bookingTime",
       headerName: "Booking Time",
@@ -78,52 +166,4 @@ function Statement({ accountId }: { accountId: string }) {
       valueFormatter: (value: number) => formatPence(value),
     },
   ];
-
-  return (
-    <Stack spacing={1}>
-      <Typography variant="h5" component="h2">
-        Statement
-      </Typography>
-      <Stack direction="row" spacing={2}>
-        <DatePicker
-          label="From"
-          value={search.from ? dayjs(search.from) : null}
-          maxDate={search.to ? dayjs(search.to) : undefined}
-          onChange={(value) => {
-            if (value && !value.isValid()) return;
-            void navigate({
-              search: (prev) => ({ ...prev, from: asDate(value) }),
-            });
-          }}
-        />
-        <DatePicker
-          label="To"
-          value={search.to ? dayjs(search.to) : null}
-          minDate={search.from ? dayjs(search.from) : undefined}
-          onChange={(value) => {
-            if (value && !value.isValid()) return;
-            void navigate({
-              search: (prev) => ({ ...prev, to: asDate(value) }),
-            });
-          }}
-        />
-      </Stack>
-      {statement.isError && (
-        <Alert severity="error">The Statement is unavailable.</Alert>
-      )}
-      <Paper>
-        <DataGrid
-          aria-label="Statement"
-          rows={statement.data?.lines ?? []}
-          getRowId={(line) => line.entrySeq}
-          columns={columns}
-          loading={statement.isPending}
-          disableColumnFilter
-          disableColumnSorting
-          disableRowSelectionOnClick
-          hideFooter
-        />
-      </Paper>
-    </Stack>
-  );
 }
