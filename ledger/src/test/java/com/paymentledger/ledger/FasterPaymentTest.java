@@ -8,10 +8,12 @@ import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.SchemeSubmission;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.PaymentId;
 import java.time.Duration;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,7 +32,8 @@ import org.springframework.test.web.servlet.client.RestTestClient;
   LedgerFixture.class,
   Sessions.class,
   FakePaymentScheme.class,
-  SchemeCallbacks.class
+  SchemeCallbacks.class,
+  PaymentStatusChangedEvents.class
 })
 class FasterPaymentTest {
 
@@ -38,6 +41,7 @@ class FasterPaymentTest {
   @Autowired Sessions sessions;
   @Autowired FakePaymentScheme scheme;
   @Autowired SchemeCallbacks callbacks;
+  @Autowired PaymentStatusChangedEvents statusEvents;
 
   AccountId a;
   String payeeAccountNumber;
@@ -146,6 +150,51 @@ class FasterPaymentTest {
     // The money stays in FPS Clearing: settlement is out of scope.
     assertThat(balancePenceOf(a)).isEqualTo(60_00);
     assertThat(balancePenceOf(ledger.fpsClearing())).isEqualTo(fpsClearingAfterPayment);
+  }
+
+  @Test
+  void rejected_scheme_outcome_rejects_the_payment_and_posts_a_reversal() {
+    PaymentView pending = makeFasterPayment(40_00);
+    UUID original = pending.transactionIds().getFirst();
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    long fpsClearingAfterPayment = balancePenceOf(ledger.fpsClearing());
+
+    callbacks.reject(endToEndId, "AC04").expectStatus().isOk();
+
+    PaymentView rejected = payment(pending.id());
+    assertThat(rejected.status()).isEqualTo("REJECTED");
+    assertThat(rejected.rejectionReason()).isEqualTo("SCHEME_REJECTED");
+    assertThat(rejected.schemeReasonCode()).isEqualTo("AC04");
+    assertThat(rejected.transactionIds()).hasSize(2).first().isEqualTo(original);
+    TransactionView reversal = transaction(rejected.transactionIds().get(1));
+    assertThat(reversal.kind()).isEqualTo("REVERSAL");
+    assertThat(reversal.paymentId()).isEqualTo(pending.id());
+    assertThat(reversal.reversesTransactionId()).isEqualTo(original);
+    assertThat(reversal.entries())
+        .containsExactlyInAnyOrder(
+            new EntryView(ledger.fpsClearing().value(), "DEBIT", 40_00),
+            new EntryView(a.value(), "CREDIT", 40_00));
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+    assertThat(balancePenceOf(ledger.fpsClearing())).isEqualTo(fpsClearingAfterPayment + 40_00);
+  }
+
+  @Test
+  void scheme_rejection_is_published_with_its_scheme_reason_code() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+
+    callbacks.reject(endToEndId, "AC01").expectStatus().isOk();
+
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .untilAsserted(() ->
+            assertThat(statusEvents.publishedFor(new PaymentId(pending.id())))
+                .extracting(ConsumerRecord::value)
+                .anySatisfy(event ->
+                    assertThat(event)
+                        .contains("\"status\":\"REJECTED\"")
+                        .contains("\"rejectionReason\":\"SCHEME_REJECTED\"")
+                        .contains("\"schemeReasonCode\":\"AC01\"")));
   }
 
   @Test
