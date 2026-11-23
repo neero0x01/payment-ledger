@@ -83,6 +83,29 @@ class PaymentStatusChangedContractTest {
     assertPayloadDescribes(payload, payment);
   }
 
+  @Test
+  void payment_rejected_for_insufficient_funds_emits_only_payment_status_changed()
+      throws IOException {
+    JsonNode payment = transfer(100_01);
+    PaymentId id = idOf(payment);
+
+    List<ConsumerRecord<String, String>> published = statusEvents.publishedFor(id);
+
+    assertThat(published).hasSize(1);
+    String value = published.getFirst().value();
+    assertThat(schemaErrors(value)).isEmpty();
+    JsonNode payload = JSON.readTree(value).get("payload");
+    assertThat(payload.get("status").asString()).isEqualTo("REJECTED");
+    assertThat(payload.get("rejectionReason").asString()).isEqualTo("INSUFFICIENT_FUNDS");
+    assertThat(payload.get("schemeReasonCode").isNull()).isTrue();
+    assertPayloadDescribes(payload, payment);
+    // The outbox publishes in the order rows were written, so once the status change is out any
+    // Transaction written with it would be out too.
+    assertThat(transactionEvents.publishedNow())
+        .map(event -> JSON.readTree(event.value()).get("payload").get("paymentId").asString(""))
+        .doesNotContain(id.value().toString());
+  }
+
   /** The payload says what the Payment endpoint says about the Payment. */
   private static void assertPayloadDescribes(JsonNode payload, JsonNode payment) {
     assertThat(payload.get("paymentId")).isEqualTo(payment.get("id"));
