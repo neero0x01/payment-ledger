@@ -10,7 +10,6 @@ export function renderApp(path = "/") {
     defaultOptions: { queries: { retry: false } },
   });
   const router = createAppRouter(
-    queryClient,
     createMemoryHistory({ initialEntries: [path] }),
   );
   render(<AppProviders queryClient={queryClient} router={router} />);

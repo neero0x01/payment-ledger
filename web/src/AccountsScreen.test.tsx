@@ -51,9 +51,9 @@ test("shows each Account's Balance, Available Balance and Overdraft Limit", asyn
     within(row)
       .getAllByRole("cell")
       .map((cell) => cell.textContent);
-  expect(
-    screen.getAllByRole("columnheader").map((h) => h.textContent),
-  ).toEqual(["Account", "Balance", "Available Balance", "Overdraft Limit"]);
+  expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual(
+    ["Account", "Balance", "Available Balance", "Overdraft Limit"],
+  );
   expect(cells(accountA)).toEqual(["£100.00", "£150.00", "£50.00"]);
   const accountB = screen.getByRole("row", { name: /^Account B\b/ });
   expect(cells(accountB)).toEqual(["£20.00", "£20.00", "£0.00"]);
