@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-router";
 import "dayjs/locale/en-gb";
 import { AccountDetailScreen } from "./AccountDetailScreen";
+import { validateAccountSearch } from "./accountSearch";
 import { AccountsScreen } from "./AccountsScreen";
 import { App } from "./App";
 import { theme } from "./theme";
@@ -36,6 +37,7 @@ const accountsRoute = createRoute({
 const accountRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/accounts/$accountId",
+  validateSearch: validateAccountSearch,
   component: AccountDetailScreen,
 });
 

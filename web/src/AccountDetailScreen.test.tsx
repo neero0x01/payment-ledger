@@ -1,5 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { type FakeEntry, installFakeLedger } from "./fakeLedger";
 import { ACCOUNT_A, ACCOUNT_B } from "./localAccounts";
 import { logIn, renderApp } from "./renderApp";
@@ -34,6 +34,20 @@ const history: FakeEntry[] = [
     counterpartyAccountId: ACCOUNT_A.id,
   },
 ];
+
+/** The value of an MUI X date field, which keeps it in a hidden input under the label. */
+function dateField(label: string) {
+  return screen
+    .getAllByLabelText(label)
+    .find((element) => element.tagName === "INPUT");
+}
+
+/** Types a date, digits only, into an MUI X date field's sections, starting at the day. */
+async function typeDate(user: UserEvent, label: string, digits: string) {
+  const field = await screen.findByRole("group", { name: label });
+  await user.click(within(field).getByRole("spinbutton", { name: "Day" }));
+  await user.keyboard(digits);
+}
 
 /** The Statement Lines on screen, as the text of each cell. */
 async function statementLines() {
@@ -73,8 +87,8 @@ test("the Statement filters by a range of Booking dates", async () => {
   await logIn(user);
   await statementLines();
 
-  await user.type(await screen.findByLabelText("From"), "02/11/2026");
-  await user.type(screen.getByLabelText("To"), "03/11/2026");
+  await typeDate(user, "From", "02112026");
+  await typeDate(user, "To", "03112026");
 
   await waitFor(async () =>
     expect(await statementLines()).toEqual([
@@ -96,5 +110,5 @@ test("a Statement link with a date range opens filtered", async () => {
   expect(await statementLines()).toEqual([
     ["1 Nov 2026, 09:00", "Credit", "£100.00", "", "£100.00"],
   ]);
-  expect(screen.getByLabelText("To")).toHaveValue("02/11/2026");
+  expect(dateField("To")).toHaveValue("02/11/2026");
 });
