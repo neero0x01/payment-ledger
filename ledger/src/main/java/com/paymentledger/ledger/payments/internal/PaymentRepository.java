@@ -6,6 +6,7 @@ import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.PaymentType;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.SchemeReasonCode;
 import com.paymentledger.ledger.payments.SchemeSubmission;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
@@ -170,11 +171,30 @@ class PaymentRepository {
         .single();
   }
 
+  /**
+   * Marks the Payment Rejected by a Scheme Rejection with the reason code and returns when it was.
+   */
+  Instant markSchemeRejected(PaymentId id, SchemeReasonCode reasonCode) {
+    return jdbc.sql(
+            """
+            update payment
+            set status = 'REJECTED', rejection_reason = 'SCHEME_REJECTED',
+                scheme_reason_code = :reasonCode
+            where id = :id
+            returning clock_timestamp() as rejected_at
+            """)
+        .param("id", id.value())
+        .param("reasonCode", reasonCode.name())
+        .query((rs, rowNum) -> rs.getObject("rejected_at", OffsetDateTime.class).toInstant())
+        .single();
+  }
+
   Optional<Payment> find(PaymentId id) {
     return jdbc.sql(
             """
             select id, type, status, debtor_account_id, payee_account_id, payee_sort_code,
-                   payee_account_number, payee_name, amount_pence, rejection_reason
+                   payee_account_number, payee_name, amount_pence, rejection_reason,
+                   scheme_reason_code
             from payment
             where id = :id
             """)
@@ -191,7 +211,8 @@ class PaymentRepository {
     return jdbc.sql(
             """
             select id, type, status, debtor_account_id, payee_account_id, payee_sort_code,
-                   payee_account_number, payee_name, amount_pence, rejection_reason
+                   payee_account_number, payee_name, amount_pence, rejection_reason,
+                   scheme_reason_code
             from payment
             where end_to_end_id = :endToEndId
             for update
@@ -220,6 +241,7 @@ class PaymentRepository {
 
   private static Payment toPayment(ResultSet rs, int rowNum) throws SQLException {
     String rejectionReason = rs.getString("rejection_reason");
+    String schemeReasonCode = rs.getString("scheme_reason_code");
     PaymentType type = PaymentType.valueOf(rs.getString("type"));
     Payee payee =
         switch (type) {
@@ -238,6 +260,7 @@ class PaymentRepository {
         new AccountId(rs.getObject("debtor_account_id", UUID.class)),
         payee,
         Money.ofPence(rs.getLong("amount_pence")),
-        rejectionReason == null ? null : RejectionReason.valueOf(rejectionReason));
+        rejectionReason == null ? null : RejectionReason.valueOf(rejectionReason),
+        schemeReasonCode == null ? null : SchemeReasonCode.valueOf(schemeReasonCode));
   }
 }

@@ -3,6 +3,7 @@ package com.paymentledger.ledger.payments.internal;
 import com.paymentledger.ledger.outbox.OutboxEvent;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.SchemeReasonCode;
 import java.time.Instant;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
@@ -28,13 +29,12 @@ final class PaymentStatusChangedEvent {
             payment.type().name(),
             payment.status().name(),
             payment.rejection().map(RejectionReason::name).orElse(null),
-            null,
+            payment.schemeRejection().map(SchemeReasonCode::name).orElse(null),
             payment.amount().pence());
     return new OutboxEvent(
         TOPIC, payment.id().value().toString(), TYPE, SCHEMA_VERSION, changedAt, payload);
   }
 
-  /** {@code schemeReasonCode} stays null until Faster Payments bring Scheme Rejections. */
   record Payload(
       UUID paymentId,
       String type,

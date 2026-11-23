@@ -45,6 +45,24 @@ public record NewTransaction(
   }
 
   /**
+   * The Reversal of a Payment's Transaction after a Scheme Rejection: its Entries mirrored with the
+   * sides swapped, linked to the original and to the same Payment.
+   */
+  public static NewTransaction reversal(PostedTransaction original) {
+    PaymentId payment =
+        original
+            .payment()
+            .orElseThrow(
+                () -> new IllegalArgumentException("Only a Payment's Transaction has a Reversal"));
+    return new NewTransaction(
+        TransactionKind.REVERSAL,
+        payment,
+        original.id(),
+        null,
+        original.entries().stream().map(Entry::mirrored).toList());
+  }
+
+  /**
    * A Reversing Correction of the original: its Entries mirrored with the sides swapped, linked to
    * the original, which is never changed.
    */

@@ -3,6 +3,7 @@ package com.paymentledger.ledger.payments.internal;
 import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.SchemeReasonCode;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
@@ -121,6 +122,7 @@ class PaymentController {
       PayeeBody payee,
       long amountPence,
       @Nullable String rejectionReason,
+      @Nullable String schemeReasonCode,
       List<UUID> transactionIds) {
 
     static PaymentResponse of(Payment payment, List<TransactionId> transactions) {
@@ -132,6 +134,7 @@ class PaymentController {
           PayeeBody.of(payment.payee()),
           payment.amount().pence(),
           payment.rejection().map(RejectionReason::name).orElse(null),
+          payment.schemeRejection().map(SchemeReasonCode::name).orElse(null),
           transactions.stream().map(TransactionId::value).toList());
     }
   }
