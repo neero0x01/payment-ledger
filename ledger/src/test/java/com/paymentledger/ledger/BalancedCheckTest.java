@@ -1,9 +1,14 @@
 package com.paymentledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
+import com.paymentledger.ledger.TransactionPostedProducer.EventEntry;
+import com.paymentledger.ledger.TransactionPostedProducer.TransactionPosted;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
+import com.paymentledger.ledger.shared.Side;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.MethodOrderer;
@@ -79,6 +84,40 @@ class BalancedCheckTest {
     // The drift stays reported on later runs, though nothing touches a again.
     BalancedCheckGauges.awaitRunStartedAfterNow(operator);
     assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 7_77);
+  }
+
+  @Test
+  @Order(3)
+  void a_read_model_balance_that_differs_from_the_write_side_is_detected() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    RestTestClient operator = sessions.operator();
+    awaitReadModelBalance(customer, a, 100_00);
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+    long before = BalancedCheckGauges.imbalancePence(operator);
+
+    // A TransactionPosted the ledger never posted claims a's entry_seq 2 left it at £123.45.
+    events.send(
+        TransactionPosted.funding(
+            Instant.now(),
+            new EventEntry(new AccountId(UUID.randomUUID()), Side.DEBIT, 23_45, 1, 23_45),
+            new EventEntry(a, Side.CREDIT, 23_45, 2, 123_45)));
+    awaitReadModelBalance(customer, a, 123_45);
+    // The ledger's own entry_seq 2 leaves a at £90.00.
+    transfer(customer, a, b, 10_00);
+    BalancedCheckGauges.awaitRunStartedAfterNow(operator);
+
+    assertThat(BalancedCheckGauges.balanced(operator)).isZero();
+    assertThat(BalancedCheckGauges.imbalancePence(operator)).isEqualTo(before + 33_45);
+  }
+
+  private static void awaitReadModelBalance(
+      RestTestClient customer, AccountId account, long balancePence) {
+    await()
+        .atMost(Duration.ofSeconds(30))
+        .until(() ->
+            ReadEndpoints.accounts(customer).get(0).get("balancePence").asLong() == balancePence);
   }
 
   static void transfer(RestTestClient customer, AccountId from, AccountId to, long amountPence) {
