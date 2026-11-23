@@ -74,6 +74,32 @@ class PaymentValidationTest {
   }
 
   @Test
+  void rejects_a_payment_with_no_payee_as_validation_failed_and_posts_nothing() {
+    expectProblem(
+        """
+        {"debtorAccountId": "%s", "amountPence": 1000}
+        """
+            .formatted(a.value()),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertBalancesUnchanged();
+  }
+
+  @Test
+  void rejects_a_payment_with_no_payer_account_as_validation_failed_and_posts_nothing() {
+    expectProblem(
+        """
+        {"payee": {"accountId": "%s"}, "amountPence": 1000}
+        """
+            .formatted(b.value()),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed");
+
+    assertBalancesUnchanged();
+  }
+
+  @Test
   void rejects_an_unknown_payee_account_as_not_found_and_posts_nothing() {
     expectProblem(
         transfer(a.value(), UUID.randomUUID(), 10_00), HttpStatus.NOT_FOUND, "/problems/not-found");
