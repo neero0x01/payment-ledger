@@ -35,8 +35,21 @@ services:
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       KAFKA_HEAP_OPTS: -Xmx512m -Xms512m
+      # The ledger creates every topic with its partitions and retention. A client must never get
+      # one created with the broker's defaults (7-day retention) instead.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
     volumes:
       - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      # Healthy once the broker answers requests. The check's own JVM gets a small heap, not the
+      # broker's KAFKA_HEAP_OPTS.
+      test:
+        - CMD-SHELL
+        - KAFKA_HEAP_OPTS=-Xmx64m /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 > /dev/null
+      interval: 5s
+      timeout: 15s
+      start_period: 20s
+      retries: 30
 
   ledger:
     build:
@@ -51,12 +64,15 @@ services:
       READMODEL_DB_URL: jdbc:postgresql://postgres:5432/readmodel
     ports:
       - "8080:8080"
+    # The ledger stops at startup if it can't create its topics (spring.kafka.admin.fail-fast).
+    restart: on-failure
     depends_on:
       postgres:
         condition: service_healthy
-      # Payments never wait for Kafka; the outbox publisher catches up once it is reachable.
+      # Startup waits for Kafka so the ledger creates its topics with their retention. Payments
+      # never wait for Kafka; the outbox publisher catches up once it is reachable.
       kafka:
-        condition: service_started
+        condition: service_healthy
 
   projector:
     # Builds the Read Model from Kafka into the readmodel database (ADR 0002). Headless.
@@ -72,7 +88,7 @@ services:
       postgres:
         condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
 
   web:
     build: ../web

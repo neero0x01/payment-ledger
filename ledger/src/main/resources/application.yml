@@ -20,6 +20,10 @@ spring:
         max.block.ms: 5000
         request.timeout.ms: 5000
         delivery.timeout.ms: 10000
+    admin:
+      # The ledger creates its topics with their partitions and retention at startup. If Kafka
+      # can't be reached it stops instead of starting without them.
+      fail-fast: true
   flyway:
     # Setting a user gives Flyway its own connection, so migrations run as the schema owner
     # and not as ledger_app.
