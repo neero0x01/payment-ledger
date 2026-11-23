@@ -195,3 +195,48 @@ test("an As-At Balance link opens at that moment", async () => {
   expect(await within(asAtBalance).findByText("£100.00")).toBeInTheDocument();
   expect(dateField("As at")).toHaveValue("03/11/2026 10:14");
 });
+
+test("the Statement says it is updating while it trails the latest Payment", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: history,
+    trailing: true,
+  });
+  const user = userEvent.setup();
+  renderApp("/transfer");
+  await logIn(user);
+  await user.selectOptions(await screen.findByLabelText("From"), "Account A");
+  await user.selectOptions(screen.getByLabelText("To"), "Account B");
+  await user.type(screen.getByLabelText("Amount (£)"), "20.00");
+  await user.click(screen.getByRole("button", { name: "Transfer" }));
+  await screen.findByText(/is COMPLETED/);
+
+  await user.click(screen.getByRole("link", { name: "Accounts" }));
+  await user.click(await screen.findByRole("link", { name: "Account A" }));
+
+  expect(await screen.findByText("updating…")).toBeInTheDocument();
+  expect(await statementLines()).toHaveLength(2);
+
+  ledger.project();
+
+  await waitFor(() => expect(screen.queryByText("updating…")).toBeNull(), {
+    timeout: 5_000,
+  });
+  expect((await statementLines())[0]).toEqual([
+    expect.any(String),
+    "Debit",
+    "£20.00",
+    "Account B",
+    "£50.00",
+  ]);
+});
+
+test("a Statement that has caught up does not say it is updating", async () => {
+  installFakeLedger({ accounts, entries: history, trailing: true });
+  const user = userEvent.setup();
+  renderApp(`/accounts/${ACCOUNT_A.id}`);
+  await logIn(user);
+
+  expect(await statementLines()).toHaveLength(2);
+  expect(screen.queryByText("updating…")).toBeNull();
+});
