@@ -106,10 +106,12 @@ class PaymentService {
 
   /**
    * Checks the Customer owns the payer's Account, inserts the Pending Faster Payment with a new
-   * End-to-End Id and posts its Transaction, which moves the money into FPS Clearing. All in one
-   * database transaction. The Payment stays Pending until its Scheme Outcome; the Scheme Submission
-   * is sent only after commit, by the dispatcher. A Payment the Customer already made with the
-   * Idempotency-Key is replayed as it is now, and nothing new is posted.
+   * End-to-End Id and posts its Transaction, which moves the money into FPS Clearing; or, when the
+   * payer's funds don't cover it, Rejects it with Insufficient Funds, so it is never submitted. All
+   * in one database transaction, with the funds check run against the payer's locked Balance. The
+   * Payment stays Pending until its Scheme Outcome; the Scheme Submission is sent only after
+   * commit, by the dispatcher. A Payment the Customer already made with the Idempotency-Key is
+   * replayed as it is now, and nothing new is posted.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
   IdempotentOutcome<Payment> makeFasterPayment(
@@ -119,7 +121,7 @@ class PaymentService {
       Payee.AtAnotherBank payee,
       Money amount) {
     requireAllowedAmount(amount);
-    payerOwnedBy(customer, debtor);
+    Account payer = payerOwnedBy(customer, debtor);
     KeyedPayment keyed =
         new KeyedPayment(
             customer,
@@ -138,7 +140,14 @@ class PaymentService {
     }
     PaymentId id = inserted.get().id();
     AccountId fpsClearing = accounts.fpsClearing();
-    posting.lockBalances(Set.of(debtor, fpsClearing));
+    Money balance =
+        Objects.requireNonNull(posting.lockBalances(Set.of(debtor, fpsClearing)).get(debtor));
+    if (!payer.canPayOut(amount, balance)) {
+      Instant rejectedAt = payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
+      Payment rejected = payments.find(id).orElseThrow();
+      outbox.append(PaymentStatusChangedEvent.of(rejected, rejectedAt));
+      return IdempotentOutcome.first(rejected);
+    }
     posting.post(
         NewTransaction.forPayment(
             id,
