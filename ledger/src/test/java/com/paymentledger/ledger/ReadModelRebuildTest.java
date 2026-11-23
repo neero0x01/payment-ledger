@@ -35,12 +35,13 @@ import tools.jackson.databind.node.ObjectNode;
 /**
  * Scenario 10 [M5]: an Operator rebuilds the Read Model by replaying Kafka with {@code projector
  * --rebuild}, and the rebuilt Read Model equals the live one. Each test stops or starts the
- * projector, so each gets its own context.
+ * projector, so each gets its own context. The rebuild replays the whole topic and is refused while
+ * the projector's consumer group has members, so each context also gets its own Postgres and Kafka.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @Import({
-  TestcontainersConfiguration.class,
+  DedicatedContainersConfiguration.class,
   ProjectorConfiguration.class,
   LedgerFixture.class,
   Sessions.class
