@@ -78,6 +78,41 @@ class ReadModelTest {
     assertThat(account.get("availableBalancePence").asLong()).isEqualTo(150_00);
   }
 
+  @Test
+  void event_delivered_twice_is_applied_once() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    TransactionPosted first =
+        TransactionPosted.funding(
+            Instant.parse("2026-11-20T10:00:00Z"),
+            new EventEntry(counterparty, Side.DEBIT, 100_00, 1, 100_00),
+            new EventEntry(a, Side.CREDIT, 100_00, 1, 100_00));
+    TransactionPosted second =
+        TransactionPosted.funding(
+            Instant.parse("2026-11-20T11:00:00Z"),
+            new EventEntry(counterparty, Side.DEBIT, 20_00, 2, 120_00),
+            new EventEntry(a, Side.CREDIT, 20_00, 2, 120_00));
+
+    // As when the outbox publisher crashes after sending but before marking the row published.
+    events.sendToOnePartition(first, first, second);
+
+    List<JsonNode> lines =
+        await()
+            .atMost(PROJECTION)
+            .until(
+                () -> statementLines(customer, a),
+                l -> l.stream().anyMatch(line -> isLineOf(line, second)));
+    assertThat(lines)
+        .extracting(line -> line.get("transactionId").asString())
+        .containsExactly(
+            second.transaction().value().toString(), first.transaction().value().toString());
+    assertThat(onlyAccount(accounts(customer)).get("balancePence").asLong()).isEqualTo(120_00);
+  }
+
+  private static boolean isLineOf(JsonNode line, TransactionPosted event) {
+    return line.get("transactionId").asString().equals(event.transaction().value().toString());
+  }
+
   private static List<JsonNode> awaitStatementLines(
       RestTestClient client, AccountId account, int count) {
     return await()
