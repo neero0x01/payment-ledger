@@ -1,3 +1,8 @@
+import { queryOptions } from "@tanstack/react-query";
+
+/** Live views poll the ledger this often. */
+export const POLL_INTERVAL_MS = 2_000;
+
 export type Balance = { accountId: string; balancePence: number };
 
 export type InternalTransfer = {
@@ -75,3 +80,28 @@ export async function fetchBalance(accountId: string): Promise<Balance> {
   }
   return response.json();
 }
+
+/** An Account as the Read Model shows it: its Balance trails the ledger by the Projection Freshness. */
+export type Account = {
+  id: string;
+  name: string;
+  kind: "CUSTOMER" | "INTERNAL";
+  balancePence: number;
+  overdraftLimitPence: number;
+  availableBalancePence: number;
+};
+
+async function getJson<T>(url: string, what: string): Promise<T> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`${what} failed with ${response.status}`);
+  }
+  return response.json();
+}
+
+export const accountsQuery = () =>
+  queryOptions({
+    queryKey: ["accounts"],
+    queryFn: () => getJson<Account[]>("/v1/accounts", "Accounts"),
+    refetchInterval: POLL_INTERVAL_MS,
+  });

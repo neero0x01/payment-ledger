@@ -1,63 +1,48 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
-import { fetchSession, logIn } from "./ledgerApi";
-import { TransferPage } from "./TransferPage";
+import {
+  AppBar,
+  Box,
+  Button,
+  Container,
+  Toolbar,
+  Typography,
+} from "@mui/material";
+import { useQuery } from "@tanstack/react-query";
+import { Link, Outlet } from "@tanstack/react-router";
+import { fetchSession } from "./ledgerApi";
+import { LoginScreen } from "./LoginScreen";
 
-/** Shows the transfer page once a Customer has logged in, and the login form until then. */
+/** The screens once someone has logged in, and the login screen until then. */
 export function App() {
   const session = useQuery({ queryKey: ["session"], queryFn: fetchSession });
-  if (session.isPending) return <p>loading…</p>;
-  if (session.isError) return <p role="alert">The ledger is unavailable.</p>;
-  return session.data ? <TransferPage /> : <LoginForm />;
-}
-
-function LoginForm() {
-  const queryClient = useQueryClient();
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const login = useMutation({
-    mutationFn: () => logIn(username, password),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["session"] }),
-  });
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    login.mutate();
+  if (session.isPending) return <Typography sx={{ p: 2 }}>loading…</Typography>;
+  if (session.isError) {
+    return (
+      <Typography role="alert" sx={{ p: 2 }}>
+        The ledger is unavailable.
+      </Typography>
+    );
   }
-
+  if (!session.data) return <LoginScreen />;
   return (
-    <main>
-      <h1>Payment Ledger</h1>
-      <form onSubmit={submit}>
-        <h2>Log in</h2>
-        <p>
-          <label>
-            Username{" "}
-            <input
-              autoComplete="username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-            />
-          </label>
-        </p>
-        <p>
-          <label>
-            Password{" "}
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </label>
-        </p>
-        {login.isError && (
-          <p role="alert">The login failed: {login.error.message}</p>
-        )}
-        <button type="submit" disabled={login.isPending}>
-          Log in
-        </button>
-      </form>
-    </main>
+    <>
+      <AppBar position="static">
+        <Toolbar>
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            Payment Ledger
+          </Typography>
+          <Button color="inherit" component={Link} to="/accounts">
+            Accounts
+          </Button>
+          <Button color="inherit" component={Link} to="/transfer">
+            Transfer
+          </Button>
+        </Toolbar>
+      </AppBar>
+      <Container component="main" sx={{ py: 3 }}>
+        <Box>
+          <Outlet />
+        </Box>
+      </Container>
+    </>
   );
 }

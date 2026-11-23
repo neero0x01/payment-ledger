@@ -81,7 +81,8 @@ export function installFakeLedger({
       transactionId,
       entrySeq: previous.length + 1,
       balanceAfterPence:
-        before + (entry.side === "CREDIT" ? entry.amountPence : -entry.amountPence),
+        before +
+        (entry.side === "CREDIT" ? entry.amountPence : -entry.amountPence),
     });
   }
   function nextTransactionId() {
@@ -197,13 +198,17 @@ export function installFakeLedger({
     const account = accounts.find((a) => a.id === accountId);
     if (method === "GET" && accountId) {
       if (!account) return problem(404);
-      if (resource === "statement") return json(200, statement(account.id, query));
+      if (resource === "statement")
+        return json(200, statement(account.id, query));
       if (resource === "balance") {
         const asAt = query.get("asAt");
         const upTo = asAt
           ? booked.filter((e) => Date.parse(e.bookingTime) <= Date.parse(asAt))
           : booked;
-        return json(200, { accountId, balancePence: balanceOf(account.id, upTo) });
+        return json(200, {
+          accountId,
+          balancePence: balanceOf(account.id, upTo),
+        });
       }
       return json(200, accountView(account));
     }
