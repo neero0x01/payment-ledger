@@ -112,3 +112,56 @@ test("a Statement link with a date range opens filtered", async () => {
   ]);
   expect(dateField("To")).toHaveValue("02/11/2026");
 });
+
+test("the Statement pages through Statement Lines 50 at a time", async () => {
+  const payments: FakeEntry[] = Array.from({ length: 54 }, (_, i) => ({
+    accountId: ACCOUNT_A.id,
+    bookingTime: new Date(Date.UTC(2026, 9, 2, i)).toISOString(),
+    side: "DEBIT",
+    amountPence: 1_00,
+    counterpartyAccountId: ACCOUNT_B.id,
+  }));
+  installFakeLedger({
+    accounts,
+    entries: [
+      {
+        accountId: ACCOUNT_A.id,
+        bookingTime: "2026-10-01T09:00:00Z",
+        side: "CREDIT",
+        amountPence: 1_000_00,
+      },
+      ...payments,
+    ],
+  });
+  const user = userEvent.setup();
+  renderApp(`/accounts/${ACCOUNT_A.id}`);
+  await logIn(user);
+
+  const firstPage = await statementLines();
+  expect(firstPage).toHaveLength(50);
+  expect(firstPage[0]).toEqual([
+    "4 Oct 2026, 05:00",
+    "Debit",
+    "£1.00",
+    "Account B",
+    "£946.00",
+  ]);
+
+  await user.click(screen.getByRole("button", { name: "Go to next page" }));
+
+  await waitFor(async () => expect(await statementLines()).toHaveLength(5));
+  expect((await statementLines()).at(-1)).toEqual([
+    "1 Oct 2026, 09:00",
+    "Credit",
+    "£1,000.00",
+    "",
+    "£1,000.00",
+  ]);
+  expect(
+    screen.getByRole("button", { name: "Go to next page" }),
+  ).toBeDisabled();
+
+  await user.click(screen.getByRole("button", { name: "Go to previous page" }));
+
+  await waitFor(async () => expect(await statementLines()).toHaveLength(50));
+});
