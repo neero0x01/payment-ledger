@@ -194,6 +194,38 @@ class ReadModelTest {
         .isEqualTo("/problems/validation-failed");
   }
 
+  @Test
+  void customer_sees_only_their_own_accounts_and_an_operator_sees_every_account() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    AccountId other = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+    RestTestClient operator = sessions.operator();
+
+    assertThat(onlyAccount(accounts(customer)).get("id").asString())
+        .isEqualTo(a.value().toString());
+    assertThat(accounts(operator))
+        .extracting(account -> account.get("id").asString())
+        .contains(
+            a.value().toString(), other.value().toString(), ledger.funding().value().toString());
+  }
+
+  @Test
+  void customer_cannot_read_another_customers_statement() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(0));
+    AccountId other = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient customer = sessions.customerOwning(a);
+
+    customer
+        .get()
+        .uri("/v1/accounts/{id}/statement", other.value())
+        .exchange()
+        .expectStatus()
+        .isForbidden()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/forbidden");
+  }
+
   /**
    * Fundings of the Account of £1.00 each, the first booked at {@link #HOUR_ZERO} plus one hour
    * with entry_seq 1, and each later one an hour later.
