@@ -130,13 +130,21 @@ export type StatementPage = {
   nextCursor: string | null;
 };
 
-export const statementQuery = (accountId: string) =>
+/** A Statement's Booking Time range: from inclusive, to exclusive, both optional. */
+export type StatementRange = { from?: string; to?: string };
+
+export const statementQuery = (accountId: string, range: StatementRange) =>
   queryOptions({
-    queryKey: ["accounts", accountId, "statement"],
-    queryFn: () =>
-      getJson<StatementPage>(
-        `/v1/accounts/${accountId}/statement`,
+    queryKey: ["accounts", accountId, "statement", range],
+    queryFn: () => {
+      const query = new URLSearchParams();
+      if (range.from) query.set("from", range.from);
+      if (range.to) query.set("to", range.to);
+      const search = query.size > 0 ? `?${query}` : "";
+      return getJson<StatementPage>(
+        `/v1/accounts/${accountId}/statement${search}`,
         "Statement",
-      ),
+      );
+    },
     refetchInterval: POLL_INTERVAL_MS,
   });

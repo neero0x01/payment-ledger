@@ -1,8 +1,10 @@
 import { Alert, Paper, Stack, Typography } from "@mui/material";
+import { DatePicker } from "@mui/x-date-pickers/DatePicker";
 import { DataGrid, type GridColDef } from "@mui/x-data-grid";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import dayjs from "dayjs";
+import { asDate, bookingTimeRange } from "./accountSearch";
 import {
   accountQuery,
   accountsQuery,
@@ -31,7 +33,11 @@ export function AccountDetailScreen() {
 }
 
 function Statement({ accountId }: { accountId: string }) {
-  const statement = useQuery(statementQuery(accountId));
+  const search = route.useSearch();
+  const navigate = route.useNavigate();
+  const statement = useQuery(
+    statementQuery(accountId, bookingTimeRange(search)),
+  );
   const accounts = useQuery(accountsQuery());
   const nameOf = (id: string | null) =>
     id === null ? "" : (accounts.data?.find((a) => a.id === id)?.name ?? id);
@@ -78,6 +84,30 @@ function Statement({ accountId }: { accountId: string }) {
       <Typography variant="h5" component="h2">
         Statement
       </Typography>
+      <Stack direction="row" spacing={2}>
+        <DatePicker
+          label="From"
+          value={search.from ? dayjs(search.from) : null}
+          maxDate={search.to ? dayjs(search.to) : undefined}
+          onChange={(value) => {
+            if (value && !value.isValid()) return;
+            void navigate({
+              search: (prev) => ({ ...prev, from: asDate(value) }),
+            });
+          }}
+        />
+        <DatePicker
+          label="To"
+          value={search.to ? dayjs(search.to) : null}
+          minDate={search.from ? dayjs(search.from) : undefined}
+          onChange={(value) => {
+            if (value && !value.isValid()) return;
+            void navigate({
+              search: (prev) => ({ ...prev, to: asDate(value) }),
+            });
+          }}
+        />
+      </Stack>
       {statement.isError && (
         <Alert severity="error">The Statement is unavailable.</Alert>
       )}
