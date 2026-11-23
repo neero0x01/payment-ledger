@@ -45,6 +45,9 @@ ledger:
       url: ${READMODEL_DB_URL:jdbc:postgresql://localhost:5432/readmodel}
       username: ${LEDGER_DB_USER:ledger}
       password: ${LEDGER_DB_PASSWORD:ledger}
+  scheme:
+    # The Faster Payments Scheme simulator (ADR 0008).
+    base-url: ${SCHEME_BASE_URL:http://localhost:8081}
 server:
   servlet:
     session:
