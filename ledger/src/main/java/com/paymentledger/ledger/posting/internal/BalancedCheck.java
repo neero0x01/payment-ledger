@@ -79,12 +79,22 @@ class BalancedCheck implements MeterBinder {
   /** Checks the Accounts touched since the last run; the first run checks every Account. */
   @Scheduled(fixedDelayString = "${ledger.balanced-check.interval:PT60S}")
   synchronized void run() {
+    check(lastStartedAt == null);
+  }
+
+  /** The nightly full sweep, which checks every Account whether or not anything touched it. */
+  @Scheduled(cron = "${ledger.balanced-check.full-sweep-cron:0 0 2 * * *}", zone = "Europe/London")
+  synchronized void fullSweep() {
+    check(true);
+  }
+
+  private void check(boolean everyAccount) {
     Instant startedAt =
         jdbc.sql("select clock_timestamp()").query(OffsetDateTime.class).single().toInstant();
     long imbalance = Math.abs(debitsMinusCredits());
     Set<AccountId> accounts;
     Map<AccountId, Money> storedDrifts;
-    if (lastStartedAt == null) {
+    if (everyAccount || lastStartedAt == null) {
       accounts = Set.copyOf(allAccountsWithBalances());
       storedDrifts = allStoredBalanceDrifts();
     } else {
@@ -124,7 +134,7 @@ class BalancedCheck implements MeterBinder {
     Map<AccountId, WriteSideBalance> written = writeSideBalancesOf(accounts);
     Map<AccountId, Money> drifts = new HashMap<>();
     Set<AccountId> trailing = new HashSet<>();
-    Map<AccountId, ReadModelBalance> behind = new HashMap<>();
+    Map<AccountId, ReadModelBalance> atSeq = new HashMap<>();
     for (AccountId account : accounts) {
       ReadModelBalance readModel = projected.get(account);
       WriteSideBalance writeSide = written.get(account);
@@ -133,19 +143,18 @@ class BalancedCheck implements MeterBinder {
       }
       if (readModel == null) {
         trailing.add(account);
-      } else if (readModel.lastEntrySeq() >= writeSide.lastEntrySeq()) {
-        // Ahead of the ledger is drift too: the Read Model holds an Entry the ledger never posted.
-        Money drift = readModel.balance().plus(writeSide.balance().negate());
-        if (drift.pence() != 0 || readModel.lastEntrySeq() > writeSide.lastEntrySeq()) {
-          drifts.put(account, drift);
-        }
+      } else if (readModel.lastEntrySeq() > writeSide.lastEntrySeq()) {
+        // The Read Model holds an Entry the ledger never posted.
+        drifts.put(account, readModel.balance().plus(writeSide.balance().negate()));
       } else {
-        trailing.add(account);
-        behind.put(account, readModel);
+        if (readModel.lastEntrySeq() < writeSide.lastEntrySeq()) {
+          trailing.add(account);
+        }
+        atSeq.put(account, readModel);
       }
     }
-    Map<AccountId, Map<Long, Money>> balancesAfter = balancesAfter(behind);
-    behind.forEach((account, readModel) -> {
+    Map<AccountId, Map<Long, Money>> balancesAfter = balancesAfter(atSeq);
+    atSeq.forEach((account, readModel) -> {
       Money writeSide = balancesAfter.getOrDefault(account, Map.of()).get(readModel.lastEntrySeq());
       Money drift =
           writeSide == null ? readModel.balance() : readModel.balance().plus(writeSide.negate());
