@@ -16,13 +16,32 @@ class ReadModel {
     this.jdbc = jdbc;
   }
 
-  /** Applies a TransactionPosted event: a Statement Line per Entry, and each Account's Balance. */
+  /**
+   * Applies a TransactionPosted event, a Statement Line per Entry and each Account's Balance,
+   * unless an event with its eventId was applied already.
+   */
   @Transactional
   void apply(TransactionPosted event) {
+    if (!recordProcessed(event)) {
+      return;
+    }
     for (PostedEntry entry : event.payload().entries()) {
       insertStatementLine(event, entry);
       updateBalance(entry);
     }
+  }
+
+  /** Records the event as processed, or answers false if it was already. */
+  private boolean recordProcessed(TransactionPosted event) {
+    return jdbc.sql(
+                """
+                insert into processed_event (event_id)
+                values (:eventId)
+                on conflict (event_id) do nothing
+                """)
+            .param("eventId", event.eventId())
+            .update()
+        == 1;
   }
 
   private void insertStatementLine(TransactionPosted event, PostedEntry entry) {
