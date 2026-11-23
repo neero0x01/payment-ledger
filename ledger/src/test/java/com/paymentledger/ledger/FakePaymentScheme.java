@@ -8,6 +8,8 @@ import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.Money;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Component;
@@ -27,6 +29,7 @@ public class FakePaymentScheme implements PaymentScheme {
 
   private final Posting posting;
   private final List<Received> received = new CopyOnWriteArrayList<>();
+  private final Set<String> failNextTo = ConcurrentHashMap.newKeySet();
 
   FakePaymentScheme(Posting posting) {
     this.posting = posting;
@@ -34,9 +37,20 @@ public class FakePaymentScheme implements PaymentScheme {
 
   @Override
   public void submit(SchemeSubmission submission) {
+    if (failNextTo.remove(submission.creditor().accountNumber())) {
+      throw new IllegalStateException("The scheme is unavailable");
+    }
     // Read on another connection, so it sees only what the ledger has committed.
     Money balance = posting.balanceOf(submission.debtorAccount()).orElseThrow();
     received.add(new Received(submission, balance));
+  }
+
+  /**
+   * Makes the next Scheme Submission to the creditor account number fail, as a scheme that is down
+   * does; it is not recorded as received.
+   */
+  public void failNextSubmissionTo(String creditorAccountNumber) {
+    failNextTo.add(creditorAccountNumber);
   }
 
   /** Every Scheme Submission received so far to the creditor account number. */
