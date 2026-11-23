@@ -6,6 +6,7 @@ import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.PaymentStatus;
 import com.paymentledger.ledger.payments.PaymentType;
 import com.paymentledger.ledger.payments.RejectionReason;
+import com.paymentledger.ledger.payments.SchemeSubmission;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
@@ -16,6 +17,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -103,6 +105,40 @@ class PaymentRepository {
                 new PaymentId(rs.getObject("id", UUID.class)),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant()))
         .optional();
+  }
+
+  /**
+   * Claims up to the limit of Pending Faster Payments that have never been submitted, oldest first,
+   * counting a Scheme Submission for each, and returns what to submit. Rows another dispatcher has
+   * locked are skipped.
+   */
+  List<SchemeSubmission> claimUnsubmittedFasterPayments(int limit) {
+    return jdbc.sql(
+            """
+            update payment
+            set submission_attempts = submission_attempts + 1,
+                last_submitted_at = clock_timestamp()
+            where id in (
+                select id
+                from payment
+                where type = 'FASTER_PAYMENT' and status = 'PENDING' and submission_attempts = 0
+                order by created_at
+                limit :limit
+                for update skip locked)
+            returning end_to_end_id, debtor_account_id, payee_sort_code, payee_account_number,
+                      payee_name, amount_pence
+            """)
+        .param("limit", limit)
+        .query((rs, rowNum) ->
+            new SchemeSubmission(
+                new EndToEndId(rs.getString("end_to_end_id")),
+                new AccountId(rs.getObject("debtor_account_id", UUID.class)),
+                new Payee.AtAnotherBank(
+                    rs.getString("payee_sort_code"),
+                    rs.getString("payee_account_number"),
+                    rs.getString("payee_name")),
+                Money.ofPence(rs.getLong("amount_pence"))))
+        .list();
   }
 
   /** Marks the Payment Completed and returns when it was. */
