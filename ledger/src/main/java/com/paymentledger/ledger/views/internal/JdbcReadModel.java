@@ -1,5 +1,7 @@
 package com.paymentledger.ledger.views.internal;
 
+import com.paymentledger.ledger.posting.ReadModelBalance;
+import com.paymentledger.ledger.posting.ReadModelBalances;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Side;
@@ -20,7 +22,7 @@ import org.springframework.stereotype.Repository;
 
 /** Reads the Read Model, which the projector builds from the ledger's Kafka events. */
 @Repository
-class JdbcReadModel {
+class JdbcReadModel implements ReadModelBalances {
 
   private final JdbcClient jdbc;
 
@@ -45,6 +47,29 @@ class JdbcReadModel {
             Map.entry(
                 new AccountId(rs.getObject("account_id", UUID.class)),
                 Money.ofPence(rs.getLong("balance_pence"))))
+        .list()
+        .stream()
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+  }
+
+  @Override
+  public Map<AccountId, ReadModelBalance> readModelBalancesOf(Collection<AccountId> accounts) {
+    if (accounts.isEmpty()) {
+      return Map.of();
+    }
+    return jdbc
+        .sql(
+            """
+            select account_id, balance_pence, last_entry_seq
+            from account_balance_view
+            where account_id in (:accountIds)
+            """)
+        .param("accountIds", accounts.stream().map(AccountId::value).toList())
+        .query((rs, rowNum) ->
+            Map.entry(
+                new AccountId(rs.getObject("account_id", UUID.class)),
+                new ReadModelBalance(
+                    Money.ofPence(rs.getLong("balance_pence")), rs.getLong("last_entry_seq"))))
         .list()
         .stream()
         .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
