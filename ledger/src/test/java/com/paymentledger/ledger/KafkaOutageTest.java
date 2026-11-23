@@ -59,7 +59,8 @@ class KafkaOutageTest {
     }
 
     assertThat(transactions).hasSize(100);
-    assertThat(unpublished(operator)).isEqualTo(100);
+    // Each Payment writes two events: its Transaction and its status change.
+    assertThat(unpublished(operator)).isEqualTo(200);
     await()
         .atMost(Duration.ofSeconds(10))
         .untilAsserted(() -> assertThat(oldestAgeSeconds(operator)).isPositive());
