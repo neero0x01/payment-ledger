@@ -1,5 +1,7 @@
 package com.paymentledger.ledger;
 
+import static com.paymentledger.ledger.ReadEndpoints.accounts;
+import static com.paymentledger.ledger.ReadEndpoints.statementLines;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -24,13 +26,15 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Scenario 10, outbox half [M4]: Payments keep succeeding while Kafka is down, the outbox lag gauge
- * shows the events waiting, and they are all published once Kafka is back.
+ * Scenario 10 [M4, completed in M5]: Payments keep succeeding while Kafka is down, the outbox lag
+ * gauge shows the events waiting, they are all published once Kafka is back, and the Read Model
+ * then holds exactly those Transactions.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @Import({
   RestartableKafkaConfiguration.class,
+  ProjectorConfiguration.class,
   LedgerFixture.class,
   Sessions.class,
   TransactionPostedEvents.class
@@ -45,7 +49,7 @@ class KafkaOutageTest {
   @Autowired KafkaContainer kafka;
 
   @Test
-  void payments_succeed_while_kafka_is_stopped_and_lag_drains_once_it_restarts() {
+  void payments_succeed_while_kafka_is_stopped_and_the_read_model_catches_up_once_it_restarts() {
     AccountId a = ledger.customerAccountWithBalance(Money.ofPence(1_000_00));
     AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
     RestTestClient customer = sessions.customerOwning(a);
@@ -73,6 +77,27 @@ class KafkaOutageTest {
         events.publishedForAll(transactions).stream().map(ConsumerRecord::key).toList();
     assertThat(published)
         .containsAll(transactions.stream().map(id -> id.value().toString()).toList());
+
+    List<String> projected =
+        await()
+            .atMost(Duration.ofSeconds(60))
+            .until(() -> statementLines(operator, b), lines -> lines.size() >= 100)
+            .stream()
+            .map(line -> line.get("transactionId").asString())
+            .toList();
+    assertThat(projected)
+        .containsExactlyInAnyOrderElementsOf(
+            transactions.stream().map(id -> id.value().toString()).toList());
+    assertThat(readModelBalancePence(customer, a)).isEqualTo(900_00);
+  }
+
+  private static long readModelBalancePence(RestTestClient customer, AccountId account) {
+    for (JsonNode listed : accounts(customer)) {
+      if (listed.get("id").asString().equals(account.value().toString())) {
+        return listed.get("balancePence").asLong();
+      }
+    }
+    throw new AssertionError("GET /v1/accounts does not list " + account.value());
   }
 
   private static TransactionId transfer(
