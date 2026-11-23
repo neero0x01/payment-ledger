@@ -76,16 +76,19 @@ class PaymentRepository {
         .single();
   }
 
-  void markRejected(PaymentId id, RejectionReason reason) {
-    jdbc.sql(
+  /** Marks the Payment Rejected for the reason given and returns when it was. */
+  Instant markRejected(PaymentId id, RejectionReason reason) {
+    return jdbc.sql(
             """
             update payment
             set status = 'REJECTED', rejection_reason = :reason
             where id = :id
+            returning clock_timestamp() as rejected_at
             """)
         .param("id", id.value())
         .param("reason", reason.name())
-        .update();
+        .query((rs, rowNum) -> rs.getObject("rejected_at", OffsetDateTime.class).toInstant())
+        .single();
   }
 
   Optional<Payment> find(PaymentId id) {

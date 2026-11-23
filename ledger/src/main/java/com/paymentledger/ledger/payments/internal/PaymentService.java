@@ -92,8 +92,10 @@ class PaymentService {
     PaymentId id = inserted.get();
     Money balance = Objects.requireNonNull(posting.lockBalances(Set.of(debtor, payee)).get(debtor));
     if (!payer.canPayOut(amount, balance)) {
-      payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
-      return IdempotentOutcome.first(payments.find(id).orElseThrow());
+      Instant rejectedAt = payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
+      Payment rejected = payments.find(id).orElseThrow();
+      outbox.append(PaymentStatusChangedEvent.of(rejected, rejectedAt));
+      return IdempotentOutcome.first(rejected);
     }
     posting.post(
         NewTransaction.forPayment(
