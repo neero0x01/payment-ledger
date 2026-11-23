@@ -84,6 +84,35 @@ class ReadModelRebuildTest {
     assertThat(readModel(operator)).isEqualTo(live);
   }
 
+  @Test
+  void projector_carries_on_from_the_rebuilt_read_model() {
+    RestTestClient operator = sessions.operator();
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    AccountId b = ledger.customerAccountWithBalance(Money.ofPence(0));
+    RestTestClient payer = sessions.customerOwning(a);
+    UUID first = pay(payer, a, b, 10_00);
+    awaitStatementLines(operator, b, 1);
+    projector.close();
+    ProjectorConfiguration.run(postgres, kafka, "--rebuild").close();
+
+    UUID second;
+    try (ConfigurableApplicationContext restarted = ProjectorConfiguration.run(postgres, kafka)) {
+      second = pay(payer, a, b, 2_50);
+      awaitStatementLines(operator, b, 2);
+    }
+
+    assertThat(statementLines(operator, b))
+        .extracting(line -> line.get("transactionId").asString())
+        .containsExactly(second.toString(), first.toString());
+    assertThat(
+            readModel(operator)
+                .get(b.value().toString())
+                .get("account")
+                .get("balancePence")
+                .asLong())
+        .isEqualTo(12_50);
+  }
+
   /**
    * Payments between three Customer Accounts and a Reversing Correction of one of them, once the
    * live Read Model shows them all: A has its funding, 7 Payments and the Correction; B 5 Payments
