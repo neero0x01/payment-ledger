@@ -21,6 +21,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.client.RestTestClient;
 
 /**
@@ -30,20 +31,23 @@ import org.springframework.test.web.servlet.client.RestTestClient;
  * ledger_balanced and ledger_imbalance_pence gauges, with the time of the last run.
  *
  * <p>The check runs every 200 ms here instead of every 60 s. The gauges cover the whole ledger, so
- * the healthy ledger is checked first and each drift test asserts what its own drift adds.
+ * the healthy ledger is checked first and each drift test asserts what its own drift adds. For the
+ * same reason the context has its own Postgres and Kafka, closed after the class: on the shared
+ * ones it would see other contexts' Accounts and Read Model events, and leave its drift behind.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = "ledger.balanced-check.interval=PT0.2S")
 @AutoConfigureRestTestClient
 @Import({
-  TestcontainersConfiguration.class,
+  DedicatedContainersConfiguration.class,
   ProjectorConfiguration.class,
   LedgerFixture.class,
   Sessions.class,
   TransactionPostedProducer.class
 })
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@DirtiesContext
 class BalancedCheckTest {
 
   @Autowired LedgerFixture ledger;
