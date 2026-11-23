@@ -152,3 +152,16 @@ export const statementQuery = (accountId: string, range: StatementRange) =>
     },
     refetchInterval: POLL_INTERVAL_MS,
   });
+
+/** The ledger's authoritative Balance, or its As-At Balance when asAt is given. */
+export const balanceQuery = (accountId: string, asAt?: string) =>
+  queryOptions({
+    queryKey: ["balance", accountId, asAt ?? "now"],
+    queryFn: () =>
+      getJson<Balance>(
+        `/v1/accounts/${accountId}/balance${
+          asAt ? `?${new URLSearchParams({ asAt })}` : ""
+        }`,
+        "Balance",
+      ),
+  });

@@ -1,8 +1,11 @@
 import dayjs, { type Dayjs } from "dayjs";
 import type { StatementRange } from "./ledgerApi";
 
-/** The URL state of an Account's detail: a range of Booking dates, as YYYY-MM-DD. */
-export type AccountSearch = { from?: string; to?: string };
+/**
+ * The URL state of an Account's detail: a range of Booking dates, as YYYY-MM-DD, and the moment of
+ * the As-At Balance, as an ISO instant.
+ */
+export type AccountSearch = { from?: string; to?: string; asAt?: string };
 
 const DATE = "YYYY-MM-DD";
 
@@ -13,15 +16,24 @@ function date(value: unknown): string | undefined {
   return dayjs(value).format(DATE) === value ? value : undefined;
 }
 
-/** Keeps the search parameters that are real dates and drops the rest. */
+function instant(value: unknown): string | undefined {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    return undefined;
+  }
+  return new Date(value).toISOString();
+}
+
+/** Keeps the search parameters that are real dates and instants, and drops the rest. */
 export function validateAccountSearch(
   search: Record<string, unknown>,
 ): AccountSearch {
   const from = date(search.from);
   const to = date(search.to);
+  const asAt = instant(search.asAt);
   return {
     ...(from && { from }),
     ...(to && { to }),
+    ...(asAt && { asAt }),
   };
 }
 
