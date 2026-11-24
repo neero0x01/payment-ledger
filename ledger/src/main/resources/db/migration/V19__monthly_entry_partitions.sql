@@ -40,6 +40,16 @@ $$;
 revoke execute on function create_entry_partition(date) from public;
 grant execute on function create_entry_partition(date) to ledger_app;
 
+-- Whether the month that starts on the date given has its partition, for the missing next-month
+-- partition gauge. It knows the partition's name from create_entry_partition.
+create function entry_partition_exists(month date) returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+    select to_regclass('entry_' || to_char(date_trunc('month', month), 'YYYY_MM')) is not null;
+$$;
+
 alter table entry rename to entry_unpartitioned;
 alter index entry_pkey rename to entry_unpartitioned_pkey;
 alter index entry_transaction_idx rename to entry_unpartitioned_transaction_idx;

@@ -32,9 +32,9 @@ spring:
   task:
     scheduling:
       pool:
-        # The outbox publisher polls every 200 ms; the balanced check and its nightly sweep get
-        # threads of their own so a long run never holds up publishing.
-        size: 3
+        # The outbox publisher polls every 200 ms; the balanced check, its nightly sweep and
+        # partition maintenance get threads of their own so a long run never holds up publishing.
+        size: 4
   mvc:
     apiversion:
       use:
@@ -57,6 +57,10 @@ ledger:
     # How long the Read Model may trail an Account (Projection Freshness) before the check counts
     # it as drift.
     projection-freshness: PT60S
+  partition-maintenance:
+    # When the job creates Entry partitions three months ahead (ADR 0010): daily, in UTC. It also
+    # runs when the ledger starts.
+    cron: "0 0 3 * * *"
   read-model:
     # The views module's read-only connection to the readmodel database, which the projector writes.
     datasource:
