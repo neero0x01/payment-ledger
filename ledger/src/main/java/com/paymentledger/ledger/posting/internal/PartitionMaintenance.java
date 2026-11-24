@@ -3,9 +3,6 @@ package com.paymentledger.ledger.posting.internal;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.binder.MeterBinder;
-import java.time.Clock;
-import java.time.LocalDate;
-import java.time.YearMonth;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -14,22 +11,19 @@ import org.springframework.stereotype.Component;
 
 /**
  * Keeps Entry partitions three months ahead of the current month (ADR 0010, spec §10). Months are
- * calendar months in UTC, like the partitions. It runs when the ledger starts and then daily, and
- * creating a partition that exists does nothing, so a missed run is caught up by the next. The
- * missing next-month partition gauge (spec §11) reads 1 if next month still has no partition, which
- * leaves weeks to fix the job before Entries booked then would be refused.
+ * calendar months in UTC, like the partitions, and the current month comes from the database's
+ * clock, which Booking Times come from too (ADR 0004). It runs when the ledger starts and then
+ * daily, and creating a partition that exists does nothing, so a missed run is caught up by the
+ * next. The missing next-month partition gauge (spec §11) reads 1 if next month has no partition,
+ * which leaves weeks to fix the job before Entries booked then would be refused.
  */
 @Component
 class PartitionMaintenance implements MeterBinder {
 
-  static final int MONTHS_AHEAD = 3;
-
   private final JdbcClient jdbc;
-  private final Clock clock;
 
-  PartitionMaintenance(JdbcClient jdbc, Clock clock) {
+  PartitionMaintenance(JdbcClient jdbc) {
     this.jdbc = jdbc;
-    this.clock = clock;
   }
 
   @Override
@@ -47,20 +41,25 @@ class PartitionMaintenance implements MeterBinder {
   /** Creates the current month's partition and the next three, unless they exist. */
   @Scheduled(cron = "${ledger.partition-maintenance.cron:0 0 3 * * *}", zone = "UTC")
   void createPartitionsAhead() {
-    YearMonth current = YearMonth.now(clock);
-    for (int ahead = 0; ahead <= MONTHS_AHEAD; ahead++) {
-      jdbc.sql("select create_entry_partition(:month)")
-          .param("month", current.plusMonths(ahead).atDay(1))
-          .query((rs, rowNum) -> rowNum)
-          .single();
-    }
+    jdbc.sql(
+            """
+            select create_entry_partition(
+                (date_trunc('month', clock_timestamp() at time zone 'UTC')
+                    + make_interval(months => ahead))::date)
+            from generate_series(0, 3) as ahead
+            """)
+        .query((rs, rowNum) -> rowNum)
+        .list();
   }
 
   private double nextMonthMissing() {
-    LocalDate nextMonth = YearMonth.now(clock).plusMonths(1).atDay(1);
     boolean exists =
-        jdbc.sql("select entry_partition_exists(:month)")
-            .param("month", nextMonth)
+        jdbc.sql(
+                """
+                select entry_partition_exists(
+                    (date_trunc('month', clock_timestamp() at time zone 'UTC')
+                        + interval '1 month')::date)
+                """)
             .query(Boolean.class)
             .single();
     return exists ? 0 : 1;
