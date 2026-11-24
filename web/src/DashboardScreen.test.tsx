@@ -88,7 +88,7 @@ test("the dashboard shows the system's health", async () => {
     figure("Ledger").getByText(/checked 24 Nov 2026, 10:15:30/),
   ).toBeInTheDocument();
   const stuck = screen.getByRole("table", { name: "Stuck Payments" });
-  expect(within(stuck).getByText("Account A")).toBeInTheDocument();
+  expect(await within(stuck).findByText("Account A")).toBeInTheDocument();
   expect(within(stuck).getByText("Jane Doe")).toBeInTheDocument();
   expect(within(stuck).getByText("£40.00")).toBeInTheDocument();
   expect(

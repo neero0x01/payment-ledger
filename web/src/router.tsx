@@ -15,6 +15,7 @@ import { AccountDetailScreen } from "./AccountDetailScreen";
 import { validateAccountSearch } from "./accountSearch";
 import { AccountsScreen } from "./AccountsScreen";
 import { App } from "./App";
+import { DashboardScreen } from "./DashboardScreen";
 import { NewPaymentScreen } from "./NewPaymentScreen";
 import { PaymentScreen } from "./PaymentScreen";
 import { theme } from "./theme";
@@ -61,6 +62,12 @@ const newPaymentRoute = createRoute({
   component: NewPaymentScreen,
 });
 
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dashboard",
+  component: DashboardScreen,
+});
+
 const routeTree = rootRoute.addChildren([
   indexRoute,
   accountsRoute,
@@ -68,6 +75,7 @@ const routeTree = rootRoute.addChildren([
   transactionRoute,
   paymentRoute,
   newPaymentRoute,
+  dashboardRoute,
 ]);
 
 export function createAppRouter(history?: RouterHistory) {

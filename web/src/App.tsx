@@ -33,9 +33,15 @@ export function App() {
           <Button color="inherit" component={Link} to="/accounts">
             Accounts
           </Button>
-          <Button color="inherit" component={Link} to="/payments/new">
-            New Payment
-          </Button>
+          {session.data.role === "OPERATOR" ? (
+            <Button color="inherit" component={Link} to="/dashboard">
+              Dashboard
+            </Button>
+          ) : (
+            <Button color="inherit" component={Link} to="/payments/new">
+              New Payment
+            </Button>
+          )}
         </Toolbar>
       </AppBar>
       <Container component="main" sx={{ py: 3 }}>
