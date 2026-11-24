@@ -25,10 +25,16 @@ A double-entry payment ledger for a fictional small UK fintech, built in Java/Sp
 You need Docker. From the repository root:
 
 ```sh
-docker compose up --build
+docker compose --profile web up --build
 ```
 
-This starts Postgres 18, the ledger on http://localhost:8080 and the bare transfer page on http://localhost:5173. The ledger runs with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Make an Internal Transfer on the page and both Balances update. `docker compose down -v` stops everything and deletes the data.
+This builds the services from source and starts the whole system: Postgres 18, Kafka, the ledger on http://localhost:8080, the projector, the FPS simulator, Caddy on http://localhost (in front of the ledger), Grafana Alloy, and the bare transfer page on http://localhost:5173. Each container runs under its share of the memory budget (spec §11). The ledger runs with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Log in as `local-customer` (password `local-customer`), make an Internal Transfer and both Balances update. `docker compose down -v` stops everything and deletes the data. Host ports are set by `POSTGRES_PORT`, `LEDGER_PORT`, `FPSSIM_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT` and `WEB_PORT` if the defaults are taken.
+
+Without `--build`, Compose runs the images published to GHCR (`IMAGE_TAG` picks one; default `latest`). On every push to main, CI builds arm64 images of the ledger, projector and simulator with Jib and pushes them tagged `latest` and with the commit SHA. To build them into your local Docker instead:
+
+```sh
+./mvnw -pl ledger,projector,fps-simulator -am package jib:dockerBuild -DskipTests
+```
 
 To work on the page with hot reload, keep Postgres and the ledger in Compose and run Vite yourself (it proxies `/v1` to the ledger):
 
@@ -67,7 +73,7 @@ docker compose up --build
 
 All seed data is synthetic. Customer names come from Datafaker with a fixed seed. **Every sort code in seed data is in the range 00-00-00 to 00-99-99, which this project treats as fictional**: the fintech's Customer Accounts are at 00-01-00, and Payees of seeded Faster Payments at the rest of the range. They stand in for real UK sort codes and must never be used to make a real payment.
 
-Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page.
+Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page. The Playwright smoke test (log in, pay, see Completed) runs against the stack in Compose: start it as above, then `npx playwright install chromium` once and `npm run smoke` in `web/` (`SMOKE_BASE_URL` points it elsewhere than http://localhost:5173).
 
 ## Docs
 
