@@ -14,7 +14,7 @@ The As-At Balance query becomes an ordered, index-only scan that reads the newes
 
 How partitions are managed:
 
-- A partition holds one calendar month in UTC and is named `entry_YYYY_MM`. Flyway (`V19__monthly_entry_partitions.sql`) creates every month from November 2025, the seed's first, through three months ahead.
+- A partition holds one calendar month in UTC and is named `entry_YYYY_MM`. Flyway (`V21__monthly_entry_partitions.sql`) creates every month from November 2025, the seed's first, through three months ahead.
 - After that, a scheduled job in `posting` creates partitions 3 months ahead. It runs when the ledger starts and then daily. It takes the current month from the database clock, the clock Booking Times come from. It calls `create_entry_partition(month)`, a `SECURITY DEFINER` function owned by the schema owner, so `ledger_app` can create partitions without owning tables.
 - The gauge `ledger.entry.partition.next.month.missing` reads 1 when next month has no partition, which leaves weeks to act before Entries would be refused.
 - There is no DEFAULT partition, because rows landing there block creating the real partition later. An Entry booked in a month with no partition is refused.
@@ -29,7 +29,7 @@ The double-entry guard (V2) used to find a Transaction's Entries through `transa
 
 ## Evidence
 
-Measured on Postgres 18 (Docker, `shared_buffers=256MB`) with the seed CLI at `--customers=5200`: **1,015,657 Transactions** and 2,031,314 Entries across 12 monthly partitions (Nov 2025 to Oct 2026). **Before** is the V18 shape: one unpartitioned table with its primary key on `id`, plus the `transaction_id` index the double-entry guard uses. **After** is the V19 shape: partitioned and indexed. Both hold the same rows and were `VACUUM ANALYZE`d. The Account is the busiest Customer Account (251 Entries; the median is 189). Each query ran once to warm the cache, and the plans below are from the second run, trimmed to the lines that matter.
+Measured on Postgres 18 (Docker, `shared_buffers=256MB`) with the seed CLI at `--customers=5200`: **1,015,657 Transactions** and 2,031,314 Entries across 12 monthly partitions (Nov 2025 to Oct 2026). **Before** is the shape before V21: one unpartitioned table with its primary key on `id`, plus the `transaction_id` index the double-entry guard uses. **After** is the V21 shape: partitioned and indexed. Both hold the same rows and were `VACUUM ANALYZE`d. The Account is the busiest Customer Account (251 Entries; the median is 189). Each query ran once to warm the cache, and the plans below are from the second run, trimmed to the lines that matter.
 
 | Query | Before | After |
 |---|---|---|
