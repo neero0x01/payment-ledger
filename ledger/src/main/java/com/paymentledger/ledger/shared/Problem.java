@@ -49,6 +49,11 @@ public final class Problem extends RuntimeException {
     return new Problem(ProblemType.FORBIDDEN, detail);
   }
 
+  /** The request goes beyond one of the public demo's abuse limits. */
+  public static Problem rateLimited(String detail) {
+    return new Problem(ProblemType.RATE_LIMITED, detail);
+  }
+
   /** Refuses an amount of zero or less as validation-failed. */
   public static Money requirePositive(Money amount) {
     if (!amount.isPositive()) {

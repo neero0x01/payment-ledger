@@ -10,7 +10,8 @@ public enum ProblemType {
   IDEMPOTENCY_KEY_MISSING("idempotency-key-missing", "Idempotency-Key missing", 400),
   IDEMPOTENCY_KEY_REUSED("idempotency-key-reused", "Idempotency-Key reused", 422),
   UNAUTHENTICATED("unauthenticated", "Unauthenticated", 401),
-  FORBIDDEN("forbidden", "Forbidden", 403);
+  FORBIDDEN("forbidden", "Forbidden", 403),
+  RATE_LIMITED("rate-limited", "Rate limited", 429);
 
   private final URI uri;
   private final String title;

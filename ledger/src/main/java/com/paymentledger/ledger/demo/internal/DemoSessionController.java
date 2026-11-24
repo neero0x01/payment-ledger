@@ -36,10 +36,15 @@ class DemoSessionController {
       new HttpSessionSecurityContextRepository();
   private final DemoSandboxes sandboxes;
   private final Logins logins;
+  private final SandboxLimits sandboxLimits;
+  private final PostLimit postLimit;
 
-  DemoSessionController(DemoSandboxes sandboxes, Logins logins) {
+  DemoSessionController(
+      DemoSandboxes sandboxes, Logins logins, SandboxLimits sandboxLimits, PostLimit postLimit) {
     this.sandboxes = sandboxes;
     this.logins = logins;
+    this.sandboxLimits = sandboxLimits;
+    this.postLimit = postLimit;
   }
 
   @PostMapping(path = "/{version}/demo-sessions", version = "1")
@@ -56,6 +61,8 @@ class DemoSessionController {
       logIn(Principal.operator(logins.demoOperator()), http, response);
       return new DemoSessionResponse(Role.OPERATOR.name(), null, List.of());
     }
+    // The visitor's own address: the proxy in front of the ledger passes it in X-Forwarded-For.
+    sandboxLimits.admit(http.getRemoteAddr());
     DemoSandbox sandbox = sandboxes.create();
     logIn(Principal.customer(sandbox.customer()), http, response);
     return DemoSessionResponse.customer(
@@ -76,6 +83,7 @@ class DemoSessionController {
     context.setAuthentication(authentication);
     SecurityContextHolder.setContext(context);
     securityContexts.saveContext(context, http, response);
+    postLimit.startFor(http.getSession());
   }
 
   record DemoSessionRequest(@Nullable Role role) {}

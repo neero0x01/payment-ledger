@@ -49,6 +49,9 @@ management:
         # Operators read the outbox lag and other gauges here (WebSecurity).
         include: health, metrics
 ledger:
+  demo:
+    # How many Demo Sandboxes the public demo creates a day across every visitor (spec §8).
+    sandboxes-per-day: 500
   balanced-check:
     # How often the balanced check proves the ledger balanced (spec §13).
     interval: PT60S
