@@ -25,14 +25,16 @@ class StoredOutcomeTest {
 
     try (ConfigurableApplicationContext first = simulator(ledger, "1.0")) {
       submit(first, endToEndId);
-      ledger.awaitCallbackFor(endToEndId);
+      ledger.awaitOutcomeFor(endToEndId);
     }
     // The restarted simulator would reject anything it decided afresh.
     try (ConfigurableApplicationContext restarted = simulator(ledger, "0.0")) {
       submit(restarted, endToEndId);
 
-      List<LedgerStub.Callback> callbacks = ledger.awaitCallbacksFor(endToEndId, 2);
-      assertThat(callbacks).extracting(LedgerStub.Callback::status).containsExactly("ACSC", "ACSC");
+      List<LedgerStub.ReceivedOutcome> callbacks = ledger.awaitOutcomesFor(endToEndId, 2);
+      assertThat(callbacks)
+          .extracting(LedgerStub.ReceivedOutcome::status)
+          .containsExactly("ACSC", "ACSC");
     }
   }
 

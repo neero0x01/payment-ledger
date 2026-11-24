@@ -32,11 +32,11 @@ class Scheme implements DisposableBean {
   private static final Logger log = LoggerFactory.getLogger(Scheme.class);
 
   private final SubmissionStore submissions;
-  private final LedgerCallbacks ledger;
+  private final LedgerSchemeOutcomes ledger;
   private final CurrentSettings settings;
   private final ScheduledExecutorService outcomes = Executors.newScheduledThreadPool(4);
 
-  Scheme(SubmissionStore submissions, LedgerCallbacks ledger, CurrentSettings settings) {
+  Scheme(SubmissionStore submissions, LedgerSchemeOutcomes ledger, CurrentSettings settings) {
     this.submissions = submissions;
     this.ledger = ledger;
     this.settings = settings;
@@ -74,7 +74,7 @@ class Scheme implements DisposableBean {
   private void sendOutcome(String endToEndId, SchemeOutcome outcome) {
     try {
       ledger.send(endToEndId, outcome);
-      submissions.callbackSent(endToEndId);
+      submissions.schemeOutcomeSent(endToEndId);
     } catch (RuntimeException e) {
       // The ledger re-sends the submission when no outcome arrives, which sends it again.
       log.warn("Couldn't send the Scheme Outcome for {} to the ledger", endToEndId, e);

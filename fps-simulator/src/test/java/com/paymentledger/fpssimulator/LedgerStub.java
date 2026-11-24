@@ -23,8 +23,8 @@ final class LedgerStub {
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
-  /** A Scheme Outcome callback as the ledger received it. */
-  record Callback(String body, @Nullable String signature, Instant receivedAt) {
+  /** A Scheme Outcome as the ledger received it. */
+  record ReceivedOutcome(String body, @Nullable String signature, Instant receivedAt) {
 
     String endToEndId() {
       return json().path("endToEndId").asString();
@@ -45,7 +45,7 @@ final class LedgerStub {
   }
 
   private final HttpServer server;
-  private final List<Callback> received = new CopyOnWriteArrayList<>();
+  private final List<ReceivedOutcome> received = new CopyOnWriteArrayList<>();
 
   LedgerStub() {
     try {
@@ -59,7 +59,7 @@ final class LedgerStub {
           String body =
               new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
           received.add(
-              new Callback(
+              new ReceivedOutcome(
                   body, exchange.getRequestHeaders().getFirst("Scheme-Signature"), Instant.now()));
           exchange.sendResponseHeaders(200, -1);
           exchange.close();
@@ -72,18 +72,18 @@ final class LedgerStub {
   }
 
   /** Every Scheme Outcome received so far for the End-to-End Id. */
-  List<Callback> callbacksFor(String endToEndId) {
+  List<ReceivedOutcome> outcomesFor(String endToEndId) {
     return received.stream().filter(c -> c.endToEndId().equals(endToEndId)).toList();
   }
 
   /** Waits up to 10 s until the ledger has received this many Scheme Outcomes for the id. */
-  List<Callback> awaitCallbacksFor(String endToEndId, int count) {
+  List<ReceivedOutcome> awaitOutcomesFor(String endToEndId, int count) {
     return await()
         .atMost(Duration.ofSeconds(10))
-        .until(() -> callbacksFor(endToEndId), list -> list.size() >= count);
+        .until(() -> outcomesFor(endToEndId), list -> list.size() >= count);
   }
 
-  Callback awaitCallbackFor(String endToEndId) {
-    return awaitCallbacksFor(endToEndId, 1).getFirst();
+  ReceivedOutcome awaitOutcomeFor(String endToEndId) {
+    return awaitOutcomesFor(endToEndId, 1).getFirst();
   }
 }

@@ -20,7 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class DemoSandboxes {
 
-  private static final Money CURRENT_ACCOUNT_OPENING_BALANCE = Money.ofPence(1_000_00);
+  private static final Money MAIN_ACCOUNT_OPENING_BALANCE = Money.ofPence(1_000_00);
   private static final Money SAVINGS_ACCOUNT_OPENING_BALANCE = Money.ofPence(250_00);
 
   private final Accounts accounts;
@@ -34,9 +34,9 @@ class DemoSandboxes {
   @Transactional(isolation = Isolation.READ_COMMITTED)
   DemoSandbox create() {
     CustomerId customer = accounts.registerDemoCustomer("Demo Customer");
-    AccountId current = open(customer, "Current Account", CURRENT_ACCOUNT_OPENING_BALANCE);
+    AccountId main = open(customer, "Customer Account", MAIN_ACCOUNT_OPENING_BALANCE);
     AccountId savings = open(customer, "Savings Account", SAVINGS_ACCOUNT_OPENING_BALANCE);
-    return new DemoSandbox(customer, List.of(current, savings));
+    return new DemoSandbox(customer, List.of(main, savings));
   }
 
   private AccountId open(CustomerId customer, String name, Money openingBalance) {

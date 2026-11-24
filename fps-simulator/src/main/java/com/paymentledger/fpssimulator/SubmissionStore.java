@@ -49,11 +49,11 @@ class SubmissionStore {
   }
 
   /** Records that the ledger took the Scheme Outcome for the End-to-End Id. */
-  void callbackSent(String endToEndId) {
+  void schemeOutcomeSent(String endToEndId) {
     db.sql(
             """
             update submission
-            set callback_sent_at = now()
+            set outcome_sent_at = now()
             where end_to_end_id = :endToEndId
             """)
         .param("endToEndId", endToEndId)

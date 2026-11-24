@@ -238,7 +238,7 @@ Every event is JSON in a shared envelope, with a JSON Schema in `docs/schemas/` 
 
 ### Simulator database (`fpssim`)
 
-`submission` (end_to_end_id PK, received_at, outcome, reason_code, callback_sent_at).
+`submission` (end_to_end_id PK, received_at, outcome, reason_code, outcome_sent_at).
 
 ## 7. API
 

@@ -41,7 +41,7 @@ class SchemeSubmissionTest {
 
     submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
 
-    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    LedgerStub.ReceivedOutcome callback = ledger.awaitOutcomeFor(endToEndId);
     assertThat(callback.status()).isEqualTo("ACSC");
     assertThat(callback.reasonCode()).isNull();
     assertThat(callback.signature()).isEqualTo(hmacSha256Hex(callback.body()));
@@ -54,7 +54,7 @@ class SchemeSubmissionTest {
 
     submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
 
-    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    LedgerStub.ReceivedOutcome callback = ledger.awaitOutcomeFor(endToEndId);
     assertThat(callback.status()).isEqualTo("RJCT");
     assertThat(callback.reasonCode()).isIn("AC01", "AG01", "MS03");
     assertThat(callback.signature()).isEqualTo(hmacSha256Hex(callback.body()));
@@ -66,7 +66,7 @@ class SchemeSubmissionTest {
 
     submit(endToEndId, "12340401").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
 
-    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    LedgerStub.ReceivedOutcome callback = ledger.awaitOutcomeFor(endToEndId);
     assertThat(callback.status()).isEqualTo("RJCT");
     assertThat(callback.reasonCode()).isEqualTo("AC04");
   }
@@ -75,14 +75,16 @@ class SchemeSubmissionTest {
   void a_resent_submission_gets_its_stored_outcome_again() {
     String endToEndId = newEndToEndId();
     submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
-    ledger.awaitCallbackFor(endToEndId);
+    ledger.awaitOutcomeFor(endToEndId);
 
     // Were it decided afresh, it would now be rejected.
     settings(0.0, 0.0, 0, 0);
     submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
 
-    List<LedgerStub.Callback> callbacks = ledger.awaitCallbacksFor(endToEndId, 2);
-    assertThat(callbacks).extracting(LedgerStub.Callback::status).containsExactly("ACSC", "ACSC");
+    List<LedgerStub.ReceivedOutcome> callbacks = ledger.awaitOutcomesFor(endToEndId, 2);
+    assertThat(callbacks)
+        .extracting(LedgerStub.ReceivedOutcome::status)
+        .containsExactly("ACSC", "ACSC");
   }
 
   @Test
@@ -96,7 +98,7 @@ class SchemeSubmissionTest {
     submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
 
     Thread.sleep(1_000);
-    assertThat(ledger.callbacksFor(endToEndId)).isEmpty();
+    assertThat(ledger.outcomesFor(endToEndId)).isEmpty();
   }
 
   @Test
@@ -107,7 +109,7 @@ class SchemeSubmissionTest {
 
     submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
 
-    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    LedgerStub.ReceivedOutcome callback = ledger.awaitOutcomeFor(endToEndId);
     assertThat(Duration.between(submitted, callback.receivedAt()))
         .isGreaterThanOrEqualTo(Duration.ofMillis(700));
   }
