@@ -170,6 +170,44 @@ test("a Correction's detail shows its Correction Reason and note", async () => {
   expect(
     await screen.findByRole("heading", { name: "Correction Transaction" }),
   ).toBeInTheDocument();
-  expect(screen.getByText("Duplicate Posting")).toBeInTheDocument();
-  expect(screen.getByText("Paid twice by mistake")).toBeInTheDocument();
+  expect(
+    screen.getByText("Correction Reason: Duplicate Posting"),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Note: Paid twice by mistake")).toBeInTheDocument();
+});
+
+const correctionPosts = (ledger: ReturnType<typeof installLedger>) =>
+  ledger.requests.filter(
+    (r) => r.method === "POST" && r.url === "/v1/corrections",
+  );
+
+test("an Operator posts a Reversing Correction of a Transaction", async () => {
+  const ledger = installLedger();
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const form = await screen.findByRole("form", { name: "Correction" });
+  await user.click(within(form).getByLabelText("Reversing Correction"));
+  await user.selectOptions(
+    within(form).getByLabelText(/^Correction Reason/),
+    "Duplicate Posting",
+  );
+  await user.type(within(form).getByLabelText(/^Note/), "Paid twice");
+  await user.click(
+    within(form).getByRole("button", { name: "Post Correction" }),
+  );
+
+  expect(
+    await screen.findByRole("link", { name: /^Correction, / }),
+  ).toBeInTheDocument();
+  const [post] = correctionPosts(ledger);
+  expect(post?.body).toEqual({
+    kind: "REVERSING",
+    transactionId: PAID_B.id,
+    reason: "DUPLICATE_POSTING",
+    note: "Paid twice",
+  });
+  expect(post?.headers.get("Idempotency-Key")).toBeTruthy();
+  expect(post?.headers.get("X-XSRF-TOKEN")).toBe("csrf-after-login");
 });
