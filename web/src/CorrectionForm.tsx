@@ -16,6 +16,7 @@ import { type FormEvent, useState } from "react";
 import {
   type CorrectionReason,
   type CorrectionRequest,
+  LedgerProblem,
   postCorrection,
   type Transaction,
 } from "./transactionApi";
@@ -29,6 +30,21 @@ export const CORRECTION_REASON: Record<CorrectionReason, string> = {
   GOODWILL: "Goodwill",
   OTHER: "Other",
 };
+
+/** What a refused Correction means for the Operator, by problem type. */
+function refusal(error: Error): string {
+  if (error instanceof LedgerProblem) {
+    switch (error.type) {
+      case "/problems/already-reversed":
+        return "This Transaction has already been reversed, so it can't be reversed again.";
+      case "/problems/payment-pending":
+        return "This Transaction's Payment is still Pending. It can be corrected once the scheme has decided.";
+      case "/problems/validation-failed":
+        return error.detail;
+    }
+  }
+  return `The Correction failed: ${error.message}`;
+}
 
 /** Posts a Correction of the Transaction: a Reversing Correction or an Adjustment. */
 export function CorrectionForm({ transaction }: { transaction: Transaction }) {
@@ -115,7 +131,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
           onChange={(e) => setNote(e.target.value)}
         />
         {correction.isError && (
-          <Alert severity="error">{correction.error.message}</Alert>
+          <Alert severity="error">{refusal(correction.error)}</Alert>
         )}
         <Box>
           <Button
