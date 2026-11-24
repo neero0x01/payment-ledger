@@ -32,9 +32,12 @@ final class SeedRandom {
     return random.nextDouble() < probability;
   }
 
-  /** A draw from the exponential distribution with mean 1. */
-  double exponential() {
-    return -Math.log(1 - random.nextDouble());
+  /**
+   * A draw from the exponential distribution with mean 1, in whole thousandths, so callers can
+   * scale an amount of money by it in integer arithmetic.
+   */
+  long exponentialThousandths() {
+    return Math.round(-Math.log(1 - random.nextDouble()) * 1_000);
   }
 
   /** A draw from the Poisson distribution with the given mean, by Knuth's method. */

@@ -76,8 +76,11 @@ public final class SeedGenerator {
   /** The mean number of everyday Faster Payments a Customer makes a day. */
   private static final double SPENDS_A_DAY = 0.45;
 
-  /** The mean everyday Faster Payment, as a share of the Customer's monthly pay. */
-  private static final double SPEND_SHARE_OF_PAY = 0.042;
+  /** The mean everyday Faster Payment, in thousandths of the Customer's monthly pay. */
+  private static final long SPEND_THOUSANDTHS_OF_PAY = 42;
+
+  /** How much more, in percent of the usual, a Customer with an Overdraft Limit spends. */
+  private static final long OVERDRAFT_SPEND_PERCENT = 108;
 
   /** The share of Faster Payments the scheme rejects. */
   private static final double SCHEME_REJECTION_SHARE = 0.02;
@@ -189,14 +192,15 @@ public final class SeedGenerator {
     int spends = random.poisson(SPENDS_A_DAY);
     for (int i = 0; i < spends; i++) {
       Payee.AtAnotherBank payee = payees.get(random.below(payees.size()));
+      // pay × thousandths of pay × percent × thousandths of the mean, in integer pence.
       long pence =
           Math.max(
               1_00,
-              (long)
-                  (holder.pay().pence()
-                      * SPEND_SHARE_OF_PAY
-                      * holder.spendFactor()
-                      * random.exponential()));
+              Math.multiplyExact(
+                      Math.multiplyExact(
+                          holder.pay().pence() * SPEND_THOUSANDTHS_OF_PAY, holder.spendPercent()),
+                      random.exponentialThousandths())
+                  / (1_000 * 100 * 1_000));
       at(during(start, 7, 22), () -> fasterPayment(holder, payee, Money.ofPence(pence)));
     }
     if (random.chance(CORRECTION_CHANCE_A_DAY)) {
@@ -416,7 +420,7 @@ public final class SeedGenerator {
         (int) random.between(25, 28),
         rent,
         externalPayee(faker.name().fullName()),
-        overdraft ? 1.08 : 1.0);
+        overdraft ? OVERDRAFT_SPEND_PERCENT : 100);
   }
 
   private Account openLoadTestAccount(int number) {
@@ -525,5 +529,5 @@ public final class SeedGenerator {
       int payday,
       Money rent,
       Payee.AtAnotherBank landlord,
-      double spendFactor) {}
+      long spendPercent) {}
 }
