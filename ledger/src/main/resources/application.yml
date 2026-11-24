@@ -42,6 +42,10 @@ spring:
       supported: "1"
     problemdetails:
       enabled: true
+springdoc:
+  # Swagger UI is public at /docs (spec §7); the OpenAPI document stays at /v3/api-docs.
+  swagger-ui:
+    path: /docs
 management:
   endpoints:
     web:

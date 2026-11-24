@@ -51,6 +51,9 @@ class WebSecurity {
                 .hasRole(Role.OPERATOR.name())
                 .requestMatchers(HttpMethod.GET, "/actuator/health")
                 .permitAll()
+                // The API docs are public (spec §7).
+                .requestMatchers(HttpMethod.GET, "/docs", "/swagger-ui/**", "/v3/api-docs/**")
+                .permitAll()
                 .requestMatchers("/actuator/**")
                 .hasRole(Role.OPERATOR.name())
                 .anyRequest()
