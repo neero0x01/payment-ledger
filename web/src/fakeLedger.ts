@@ -31,6 +31,18 @@ type BookedEntry = FakeEntry & {
   balanceAfterPence: number;
 };
 
+type FakePayment = {
+  id: string;
+  type: "INTERNAL_TRANSFER" | "FASTER_PAYMENT";
+  status: "PENDING" | "COMPLETED" | "REJECTED";
+  debtorAccountId: string;
+  payee: unknown;
+  amountPence: number;
+  rejectionReason: "INSUFFICIENT_FUNDS" | "SCHEME_REJECTED" | null;
+  schemeReasonCode: string | null;
+  transactionIds: string[];
+};
+
 export const STATEMENT_PAGE_SIZE = 50;
 
 /** Credit-normal Customer Accounts, each funded with one Entry booked at the given moment. */
@@ -69,6 +81,11 @@ export function installFakeLedger({
   const booked: BookedEntry[] = [];
   let projected = 0;
   let transactions = 0;
+  const payments: FakePayment[] = [];
+  const byIdempotencyKey = new Map<
+    string,
+    { request: string; payment: FakePayment }
+  >();
   let loggedIn = false;
   let csrfToken = "csrf-before-login";
 
@@ -110,6 +127,92 @@ export function installFakeLedger({
       availableBalancePence: balancePence + overdraftLimitPence,
     };
   };
+
+  /**
+   * Like the ledger: an Internal Transfer is Completed at once, and a Faster Payment debits the
+   * payer and stays Pending until `decide` gives its Scheme Outcome.
+   */
+  function makePayment(request: {
+    debtorAccountId: string;
+    payee: { accountId?: string };
+    amountPence: number;
+  }): FakePayment {
+    const { debtorAccountId, payee, amountPence } = request;
+    const internal = payee.accountId !== undefined;
+    const id = `019a0000-0000-7000-8000-${String(payments.length + 1).padStart(12, "0")}`;
+    const type = internal ? "INTERNAL_TRANSFER" : "FASTER_PAYMENT";
+    const debtor = accounts.find((a) => a.id === debtorAccountId);
+    const available =
+      balanceOf(debtorAccountId, booked) + (debtor?.overdraftLimitPence ?? 0);
+    if (amountPence > available) {
+      const rejected: FakePayment = {
+        id,
+        type,
+        status: "REJECTED",
+        debtorAccountId,
+        payee,
+        amountPence,
+        rejectionReason: "INSUFFICIENT_FUNDS",
+        schemeReasonCode: null,
+        transactionIds: [],
+      };
+      payments.push(rejected);
+      return rejected;
+    }
+    const transactionId = nextTransactionId();
+    const bookingTime = new Date().toISOString();
+    book(
+      {
+        accountId: debtorAccountId,
+        bookingTime,
+        side: "DEBIT",
+        amountPence,
+        counterpartyAccountId: payee.accountId ?? null,
+      },
+      transactionId,
+    );
+    if (payee.accountId !== undefined) {
+      book(
+        {
+          accountId: payee.accountId,
+          bookingTime,
+          side: "CREDIT",
+          amountPence,
+          counterpartyAccountId: debtorAccountId,
+        },
+        transactionId,
+      );
+    }
+    if (!trailing) project();
+    const payment: FakePayment = {
+      id,
+      type,
+      status: internal ? "COMPLETED" : "PENDING",
+      debtorAccountId,
+      payee,
+      amountPence,
+      rejectionReason: null,
+      schemeReasonCode: null,
+      transactionIds: [transactionId],
+    };
+    payments.push(payment);
+    return payment;
+  }
+
+  /** The Scheme Outcome of the latest Pending Faster Payment. */
+  function decide(
+    outcome:
+      | { status: "COMPLETED" }
+      | { status: "REJECTED"; schemeReasonCode: string },
+  ) {
+    const payment = payments.findLast((p) => p.status === "PENDING");
+    if (!payment) throw new Error("No Faster Payment is Pending");
+    payment.status = outcome.status;
+    if (outcome.status === "REJECTED") {
+      payment.rejectionReason = "SCHEME_REJECTED";
+      payment.schemeReasonCode = outcome.schemeReasonCode;
+    }
+  }
 
   const json = (status: number, body: unknown) =>
     new Response(JSON.stringify(body), {
@@ -213,43 +316,32 @@ export function installFakeLedger({
       return json(200, accountView(account));
     }
     if (method === "POST" && path === "/v1/payments") {
-      const { debtorAccountId, payee, amountPence } = body;
-      const transactionId = nextTransactionId();
-      const bookingTime = new Date().toISOString();
-      book(
-        {
-          accountId: debtorAccountId,
-          bookingTime,
-          side: "DEBIT",
-          amountPence,
-          counterpartyAccountId: payee.accountId,
-        },
-        transactionId,
-      );
-      book(
-        {
-          accountId: payee.accountId,
-          bookingTime,
-          side: "CREDIT",
-          amountPence,
-          counterpartyAccountId: debtorAccountId,
-        },
-        transactionId,
-      );
-      if (!trailing) project();
-      return json(201, {
-        id: "019a0000-0000-7000-8000-0000000000ff",
-        type: "INTERNAL_TRANSFER",
-        status: "COMPLETED",
-        debtorAccountId,
-        payee,
-        amountPence,
-        transactionIds: [transactionId],
-      });
+      // Like the ledger, a resent Idempotency-Key replays the Payment as it is now.
+      const key = headers.get("Idempotency-Key");
+      if (!key) return problem(400);
+      const made = byIdempotencyKey.get(key);
+      if (made) {
+        if (made.request !== JSON.stringify(body)) return problem(422);
+        return new Response(JSON.stringify(made.payment), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotent-Replayed": "true",
+          },
+        });
+      }
+      const payment = makePayment(body);
+      byIdempotencyKey.set(key, { request: JSON.stringify(body), payment });
+      return json(201, payment);
+    }
+    const [, paymentId] = path.match(/^\/v1\/payments\/([^/]+)$/) ?? [];
+    const payment = payments.find((p) => p.id === paymentId);
+    if (method === "GET" && paymentId) {
+      return payment ? json(200, payment) : problem(404);
     }
     return problem(404);
   };
 
   vi.stubGlobal("fetch", fetch);
-  return { requests, project };
+  return { requests, project, decide, payments };
 }
