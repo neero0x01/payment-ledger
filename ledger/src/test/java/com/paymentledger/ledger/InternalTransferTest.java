@@ -81,6 +81,7 @@ class InternalTransferTest {
     assertThat(transaction).isNotNull();
     assertThat(transaction.kind()).isEqualTo("PAYMENT");
     assertThat(transaction.paymentId()).isEqualTo(payment.id());
+    assertThat(transaction.source()).isEqualTo("LIVE");
     assertThat(transaction.entries())
         .containsExactlyInAnyOrder(
             new EntryView(a.value(), "DEBIT", 30_00), new EntryView(b.value(), "CREDIT", 30_00));
@@ -186,7 +187,8 @@ class InternalTransferTest {
 
   record PaymentView(UUID id, String status, List<UUID> transactionIds) {}
 
-  record TransactionView(UUID id, String kind, UUID paymentId, List<EntryView> entries) {}
+  record TransactionView(
+      UUID id, String kind, UUID paymentId, String source, List<EntryView> entries) {}
 
   record EntryView(UUID accountId, String side, long amountPence) {}
 
