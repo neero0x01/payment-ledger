@@ -78,10 +78,35 @@ export async function makePayment(
     },
     body: JSON.stringify(payment),
   });
-  if (!response.ok) {
-    throw new Error(`Payment failed with ${response.status}`);
-  }
+  if (!response.ok) throw await problemOf(response);
   return response.json();
+}
+
+/** A request the ledger refused with an RFC 9457 problem, such as a validation failure. */
+export class ProblemError extends Error {
+  readonly type: string;
+  readonly detail: string;
+
+  constructor(type: string, detail: string) {
+    super(detail);
+    this.name = "ProblemError";
+    this.type = type;
+    this.detail = detail;
+  }
+}
+
+async function problemOf(response: Response): Promise<Error> {
+  if (response.headers.get("Content-Type")?.includes("problem+json")) {
+    const problem: { type?: string; title?: string; detail?: string } =
+      await response.json();
+    if (problem.type) {
+      return new ProblemError(
+        problem.type,
+        problem.detail ?? problem.title ?? problem.type,
+      );
+    }
+  }
+  return new Error(`the ledger answered ${response.status}`);
 }
 
 /** An Account as the Read Model shows it: its Balance trails the ledger by the Projection Freshness. */

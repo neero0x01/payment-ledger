@@ -21,31 +21,9 @@ import {
   type Payment,
   type PaymentRequest,
   paymentQuery,
+  ProblemError,
 } from "./ledgerApi";
-import { parsePounds } from "./money";
-
-type PaymentType = Payment["type"];
-
-/** What the Customer has typed into the form. */
-type Form = {
-  type: PaymentType;
-  from: string;
-  to: string;
-  sortCode: string;
-  accountNumber: string;
-  name: string;
-  amount: string;
-};
-
-const EMPTY_FORM: Form = {
-  type: "INTERNAL_TRANSFER",
-  from: "",
-  to: "",
-  sortCode: "",
-  accountNumber: "",
-  name: "",
-  amount: "",
-};
+import { EMPTY_FORM, type NewPaymentForm, validate } from "./newPaymentForm";
 
 /** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
 export function NewPaymentScreen() {
@@ -54,6 +32,9 @@ export function NewPaymentScreen() {
   const customerAccounts =
     accounts.data?.filter((a) => a.kind === "CUSTOMER") ?? [];
   const [form, setForm] = useState(EMPTY_FORM);
+  // Problems show once the Customer first tries to pay, then follow the form as it is fixed.
+  const [triedToPay, setTriedToPay] = useState(false);
+  const problems = triedToPay ? (validate(form).problems ?? {}) : {};
   // One Idempotency-Key per submission of the form as it stands: a double-click, or paying again
   // after a lost response, resends it and gets the same Payment back. Editing the form starts a new
   // submission.
@@ -74,35 +55,24 @@ export function NewPaymentScreen() {
     },
   });
 
-  const field = (name: keyof Form) => ({
+  const field = (name: keyof NewPaymentForm) => ({
     value: form[name],
     onChange: (e: { target: { value: string } }) => {
       idempotencyKey.current = null;
       setForm((prev) => ({ ...prev, [name]: e.target.value }));
     },
+    error: problems[name] !== undefined,
+    helperText: problems[name],
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const amountPence = parsePounds(form.amount);
-    if (amountPence === undefined || sending.current) return;
+    setTriedToPay(true);
+    const { request } = validate(form);
+    if (!request || sending.current) return;
     sending.current = true;
     idempotencyKey.current ??= crypto.randomUUID();
-    payment.mutate({
-      request: {
-        debtorAccountId: form.from,
-        payee:
-          form.type === "INTERNAL_TRANSFER"
-            ? { accountId: form.to }
-            : {
-                sortCode: form.sortCode,
-                accountNumber: form.accountNumber,
-                name: form.name,
-              },
-        amountPence,
-      },
-      idempotencyKey: idempotencyKey.current,
-    });
+    payment.mutate({ request, idempotencyKey: idempotencyKey.current });
   }
 
   const accountOptions = [
@@ -119,11 +89,22 @@ export function NewPaymentScreen() {
       <Typography variant="h4" component="h1">
         New Payment
       </Typography>
-      <Paper component="form" onSubmit={submit} sx={{ p: 3 }}>
+      <Paper
+        component="form"
+        aria-label="New Payment"
+        noValidate
+        onSubmit={submit}
+        sx={{ p: 3 }}
+      >
         <Stack spacing={2}>
           <FormControl>
             <FormLabel id="payment-type">Payment type</FormLabel>
-            <RadioGroup row aria-labelledby="payment-type" {...field("type")}>
+            <RadioGroup
+              row
+              aria-labelledby="payment-type"
+              value={form.type}
+              onChange={field("type").onChange}
+            >
               <FormControlLabel
                 value="INTERNAL_TRANSFER"
                 control={<Radio />}
@@ -175,7 +156,9 @@ export function NewPaymentScreen() {
           />
           {payment.isError && (
             <Alert severity="error">
-              The Payment failed: {payment.error.message}
+              {payment.error instanceof ProblemError
+                ? `The ledger refused the Payment: ${payment.error.detail}`
+                : `The Payment failed: ${payment.error.message}. Paying again resends the same Payment.`}
             </Alert>
           )}
           <Box>
