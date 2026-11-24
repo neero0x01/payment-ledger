@@ -43,7 +43,13 @@ public final class CopyFiles implements SeedSink, AutoCloseable {
 
   @Override
   public void customer(SeededCustomer customer) {
-    row(SeedTable.CUSTOMER, customer.id().value(), customer.displayName(), customer.createdAt());
+    // Every seeded Customer is marked seeded, so no Correction touches their Accounts (spec §8).
+    row(
+        SeedTable.CUSTOMER,
+        customer.id().value(),
+        customer.displayName(),
+        true,
+        customer.createdAt());
   }
 
   @Override

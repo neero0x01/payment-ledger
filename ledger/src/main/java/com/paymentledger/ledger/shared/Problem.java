@@ -34,6 +34,10 @@ public final class Problem extends RuntimeException {
     return new Problem(ProblemType.PAYMENT_PENDING, detail);
   }
 
+  public static Problem seedDataReadOnly(String detail) {
+    return new Problem(ProblemType.SEED_DATA_READ_ONLY, detail);
+  }
+
   /** A request that must be safe to retry came without an Idempotency-Key header. */
   public static Problem idempotencyKeyMissing(String detail) {
     return new Problem(ProblemType.IDEMPOTENCY_KEY_MISSING, detail);

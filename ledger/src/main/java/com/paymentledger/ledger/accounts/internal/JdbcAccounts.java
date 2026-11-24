@@ -10,6 +10,7 @@ import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Side;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -117,6 +118,19 @@ class JdbcAccounts implements Accounts {
         .param("id", id.value())
         .query(JdbcAccounts::account)
         .optional();
+  }
+
+  @Override
+  public boolean areSeededOnly(Collection<AccountId> accounts) {
+    return jdbc.sql(
+            """
+            select coalesce(bool_and(c.seeded), false)
+            from account a join customer c on c.id = a.customer_id
+            where a.id in (:ids)
+            """)
+        .param("ids", accounts.stream().map(AccountId::value).toList())
+        .query(Boolean.class)
+        .single();
   }
 
   @Override

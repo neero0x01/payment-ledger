@@ -10,6 +10,7 @@ import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PendingPayments;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
+import com.paymentledger.ledger.posting.TransactionSource;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.IdempotentOutcome;
@@ -22,6 +23,8 @@ import com.paymentledger.ledger.shared.TransactionId;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -30,7 +33,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Posts Corrections: new Transactions that fix mistakes without changing the originals. A
  * Correction the Operator already posted with the Idempotency-Key is replayed, and nothing new is
- * posted (ADR 0007).
+ * posted (ADR 0007). Seeded data is read-only for every Operator (spec §8): a Correction of a
+ * source=SEED Transaction, or one that would touch only seeded Customer Accounts, is refused as
+ * seed-data-read-only. The seed posts its own Corrections directly, never through here.
  */
 @Service
 class CorrectionService {
@@ -73,6 +78,10 @@ class CorrectionService {
       throw Problem.validationFailed(
           "An Adjustment moves money between a Customer Account and the Corrections Account");
     }
+    if (accounts.areSeededOnly(Set.of(customerAccount))
+        || mistake.filter(CorrectionService::isSeeded).isPresent()) {
+      throw seedDataReadOnly();
+    }
     if (logins.isDemoOperator(operator) && !accounts.isInDemoSandbox(customerAccount)) {
       throw outsideDemoSandboxes();
     }
@@ -113,6 +122,9 @@ class CorrectionService {
       TransactionId original,
       CorrectionDetails correction) {
     PostedTransaction mistake = existing(original);
+    if (isSeeded(mistake) || accounts.areSeededOnly(accountsOf(mistake))) {
+      throw seedDataReadOnly();
+    }
     if (logins.isDemoOperator(operator) && !isOnDemoSandboxAccountsOnly(mistake)) {
       throw outsideDemoSandboxes();
     }
@@ -172,6 +184,18 @@ class CorrectionService {
             .toList();
     return !customerAccounts.isEmpty()
         && customerAccounts.stream().allMatch(accounts::isInDemoSandbox);
+  }
+
+  private static boolean isSeeded(PostedTransaction transaction) {
+    return transaction.source() == TransactionSource.SEED;
+  }
+
+  private static Set<AccountId> accountsOf(PostedTransaction transaction) {
+    return transaction.entries().stream().map(Entry::account).collect(Collectors.toSet());
+  }
+
+  private static RuntimeException seedDataReadOnly() {
+    return Problem.seedDataReadOnly("Seeded data is read-only: no Correction may touch it");
   }
 
   private static RuntimeException outsideDemoSandboxes() {

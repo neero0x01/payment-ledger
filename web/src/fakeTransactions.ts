@@ -4,7 +4,8 @@ import type { FakeRequest } from "./fakeLedger";
  * The write side of the ledger HTTP API for Operator screens, added to the fake ledger as routes:
  * GET /v1/transactions/{id}, GET /v1/payments/{id} and POST /v1/corrections. Like the ledger, it
  * refuses a second reversal as already-reversed, a Correction of a Transaction whose Payment is
- * Pending as payment-pending, and replays a Correction whose Idempotency-Key it has seen.
+ * Pending as payment-pending, a Correction of a seeded Transaction as seed-data-read-only, and
+ * replays a Correction whose Idempotency-Key it has seen.
  */
 
 export type FakeTransactionEntry = {
@@ -23,6 +24,7 @@ export type FakeTransaction = {
   adjustsTransactionId?: string;
   correctionReason?: string;
   correctionNote?: string;
+  source?: "LIVE" | "SEED";
   entries: FakeTransactionEntry[];
 };
 
@@ -93,6 +95,7 @@ export function fakeTransactions({
     reversesTransactionId: t.reversesTransactionId ?? null,
     correctionReason: t.correctionReason ?? null,
     correctionNote: t.correctionNote ?? null,
+    source: t.source ?? "LIVE",
     entries: t.entries.map((e, i) => ({ ...e, entrySeq: i + 1 })),
     reversedByTransactionId: reversalOf(t.id),
     correctsTransactionId: correctsOf(t),
@@ -135,6 +138,13 @@ export function fakeTransactions({
         404,
         "not-found",
         `No Transaction ${body.transactionId} exists`,
+      );
+    }
+    if (corrected?.source === "SEED") {
+      return problem(
+        409,
+        "seed-data-read-only",
+        "Seeded data is read-only: no Correction may touch it",
       );
     }
     const payment = payments.find((p) => p.id === corrected?.paymentId);

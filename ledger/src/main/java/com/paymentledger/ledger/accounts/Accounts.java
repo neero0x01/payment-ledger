@@ -4,6 +4,7 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Principal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -31,6 +32,13 @@ public interface Accounts {
   AccountId fpsClearing();
 
   Optional<Account> find(AccountId id);
+
+  /**
+   * Whether the Accounts include a Customer Account and every Customer Account among them is a
+   * seeded one, which the seed loaded and no Correction may touch (spec §8). Internal Accounts
+   * don't count: seeded and live data share them.
+   */
+  boolean areSeededOnly(Collection<AccountId> accounts);
 
   /** Whether the Account is a Customer Account in a Demo Sandbox. */
   boolean isInDemoSandbox(AccountId id);

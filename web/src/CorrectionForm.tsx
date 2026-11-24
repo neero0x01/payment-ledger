@@ -52,6 +52,8 @@ function refusal(error: Error): string {
         return "This Transaction has already been reversed, so it can't be reversed again.";
       case "/problems/payment-pending":
         return "This Transaction's Payment is still Pending. It can be corrected once the scheme has decided.";
+      case "/problems/seed-data-read-only":
+        return "This Transaction is seeded data, which is read-only. No Correction can touch it.";
       case "/problems/validation-failed":
         return error.detail;
     }

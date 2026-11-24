@@ -333,6 +333,19 @@ test("correcting a Transaction whose Payment is Pending says to wait for the sch
   );
 });
 
+test("correcting a seeded Transaction says seeded data is read-only", async () => {
+  installLedger({ transactions: [{ ...PAID_B, source: "SEED" }] });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const form = await postReversingCorrection(user);
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "This Transaction is seeded data, which is read-only. No Correction can touch it.",
+  );
+});
+
 test("retrying a failed Correction sends the same Idempotency-Key", async () => {
   const ledger = installLedger({ unavailableForFirstCorrection: true });
   const user = userEvent.setup();

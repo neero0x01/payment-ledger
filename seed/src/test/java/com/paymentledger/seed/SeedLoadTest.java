@@ -145,6 +145,45 @@ class SeedLoadTest {
   }
 
   @Test
+  void correction_of_a_seeded_transaction_is_refused_as_seed_data_read_only() {
+    String accountId = loadTestAccountId();
+    String seeded = firstTransactionOn(accountId);
+    long before = balancePenceOf(accountId);
+
+    OperatorClient.Response refused =
+        operator.post(
+            "/v1/corrections",
+            """
+            {"kind": "REVERSING", "transactionId": "%s", "reason": "DUPLICATE_POSTING",
+             "note": "Seeded data is read-only"}
+            """
+                .formatted(seeded));
+
+    assertThat(refused.status()).isEqualTo(409);
+    assertThat(refused.body().get("type").asString()).isEqualTo("/problems/seed-data-read-only");
+    assertThat(balancePenceOf(accountId)).isEqualTo(before);
+  }
+
+  @Test
+  void adjustment_of_a_seeded_customer_account_is_refused_as_seed_data_read_only() {
+    String accountId = loadTestAccountId();
+    long before = balancePenceOf(accountId);
+
+    OperatorClient.Response refused =
+        operator.post(
+            "/v1/corrections",
+            """
+            {"kind": "ADJUSTMENT", "reason": "GOODWILL", "note": "Seeded data is read-only",
+             "accountId": "%s", "amountPence": 500, "direction": "CREDIT"}
+            """
+                .formatted(accountId));
+
+    assertThat(refused.status()).isEqualTo(409);
+    assertThat(refused.body().get("type").asString()).isEqualTo("/problems/seed-data-read-only");
+    assertThat(balancePenceOf(accountId)).isEqualTo(before);
+  }
+
+  @Test
   void seeding_a_ledger_that_already_has_transactions_is_refused() {
     String someAccount = list(operator.get("/v1/accounts")).getFirst().get("id").asString();
     long before =
@@ -160,6 +199,31 @@ class SeedLoadTest {
     assertThat(list(operator.get("/v1/accounts")))
         .filteredOn(account -> account.get("name").asString().equals("Load Test Account 001"))
         .hasSize(1);
+  }
+
+  private static String loadTestAccountId() {
+    return list(operator.get("/v1/accounts")).stream()
+        .filter(account -> account.get("name").asString().equals("Load Test Account 001"))
+        .findFirst()
+        .orElseThrow()
+        .get("id")
+        .asString();
+  }
+
+  /** The Transaction of the Account's first Statement Line, once the Read Model has it. */
+  private static String firstTransactionOn(String accountId) {
+    return await()
+        .atMost(DRAINED)
+        .until(
+            () -> list(operator.get("/v1/accounts/" + accountId + "/statement").get("lines")),
+            l -> !l.isEmpty())
+        .getFirst()
+        .get("transactionId")
+        .asString();
+  }
+
+  private static long balancePenceOf(String accountId) {
+    return operator.get("/v1/accounts/" + accountId + "/balance").get("balancePence").asLong();
   }
 
   /** Waits until every Account's Read Model Balance equals its Balance in the ledger. */

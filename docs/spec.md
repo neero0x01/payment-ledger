@@ -256,7 +256,7 @@ All paths are under `/v1` (Spring Framework 7 API versioning). Errors are RFC 94
 | `POST /scheme/callbacks` | simulator (HMAC) | pacs.002-lite |
 | `POST /demo-sessions` | public | `{role: CUSTOMER / OPERATOR}`; rate-limited |
 
-Problem types include `validation-failed`, `idempotency-key-reused`, `idempotency-key-missing`, `already-reversed`, `payment-pending`, `forbidden`, `not-found` and `rate-limited`.
+Problem types include `validation-failed`, `idempotency-key-reused`, `idempotency-key-missing`, `already-reversed`, `payment-pending`, `seed-data-read-only`, `forbidden`, `not-found` and `rate-limited`.
 
 ## 8. Auth and public demo
 
@@ -267,6 +267,9 @@ Problem types include `validation-failed`, `idempotency-key-reused`, `idempotenc
 - **No Keycloak or OAuth in v1.**
 - **"Try as customer"** creates a Demo Sandbox: a new Customer with two Customer Accounts, funded from Funding by real Transactions.
 - **"Try as operator"** can correct only Transactions on Demo Sandbox Accounts. Seeded data is read-only for everyone.
+  - Seeded data means a `source=SEED` Transaction, or a seeded Customer Account: one owned by a Customer the seed loaded (`customer.seeded`). Internal Accounts are shared by seeded and live data, so they are never seeded.
+  - Any Operator's Correction is refused with `409 /problems/seed-data-read-only` when it targets a `source=SEED` Transaction, or when every Customer Account it would touch is seeded: an Adjustment of a seeded Customer Account, or a Reversing Correction of a live Transaction whose Customer Accounts are all seeded (such as a load-test Payment).
+  - This is the narrowest reading of the rule: a live Transaction between a seeded and a live Customer Account can still be corrected. The seed's own Corrections are bulk-loaded directly and never pass this check.
 - **Abuse limits:**
   - one sandbox per IP per 10 minutes
   - 500 sandboxes per day globally
