@@ -4,10 +4,14 @@ import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import org.jspecify.annotations.Nullable;
 
-/** A Transaction as recorded in the ledger. It never changes once posted. */
+/**
+ * A Transaction as recorded in the ledger, posted live or loaded by the seed. It never changes once
+ * posted.
+ */
 public record PostedTransaction(
     TransactionId id,
     TransactionKind kind,
@@ -15,9 +19,11 @@ public record PostedTransaction(
     @Nullable PaymentId originatingPayment,
     @Nullable TransactionId reversedTransaction,
     @Nullable CorrectionDetails correctionDetails,
+    TransactionSource source,
     List<PostedEntry> postedEntries) {
 
   public PostedTransaction {
+    Objects.requireNonNull(source, "source");
     postedEntries = List.copyOf(postedEntries);
   }
 

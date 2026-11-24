@@ -45,6 +45,19 @@ docker compose run --rm projector --rebuild
 docker compose start projector
 ```
 
+### Seed data
+
+The seed CLI in `seed/` loads about 1M synthetic Transactions, booked from 2025-11-01 to 2026-10-31, into an empty ledger database: 5,000 Customers with about 6,500 Customer Accounts, and 200 load-test Accounts with £1,000,000.00 each. It starts from a fixed random seed, so every run generates identical data. It migrates the database, refuses one that already has Transactions, and bulk-loads everything with `COPY` in one database transaction, marked `source=SEED`. The running ledger's outbox publisher then drains the seeded events into Kafka, and the projector builds the Read Model from them. Start from a fresh database (`docker compose down -v`) and seed it before the ledger first starts, since the `local` profile posts a Transaction of its own:
+
+```sh
+docker compose up -d postgres
+./mvnw -pl seed -am package -DskipTests
+java -jar seed/target/seed-0.1.0-SNAPSHOT.jar   # or --url=… --user=… --password=… --customers=…
+docker compose up --build
+```
+
+All seed data is synthetic. Customer names come from Datafaker with a fixed seed. **Every sort code in seed data is in the range 00-00-00 to 00-99-99, which this project treats as fictional**: the fintech's Customer Accounts are at 00-01-00, and Payees of seeded Faster Payments at the rest of the range. They stand in for real UK sort codes and must never be used to make a real payment.
+
 Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page.
 
 ## Docs

@@ -6,6 +6,8 @@ COPY mvnw pom.xml ./
 COPY .mvn .mvn
 COPY projector/pom.xml projector/pom.xml
 COPY ledger/pom.xml ledger/pom.xml
+# The reactor lists the seed generator too.
+COPY seed/pom.xml seed/pom.xml
 RUN ./mvnw -B -ntp -pl projector -am dependency:go-offline
 COPY projector/src projector/src
 RUN ./mvnw -B -ntp -pl projector -am package -DskipTests -Dspotless.check.skip=true

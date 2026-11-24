@@ -127,6 +127,11 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- The seed generator builds its Transactions with the ledger's domain types, so the
+               plain jar stays the main artifact and the runnable one gets a classifier. -->
+          <classifier>exec</classifier>
+        </configuration>
       </plugin>
     </plugins>
   </build>

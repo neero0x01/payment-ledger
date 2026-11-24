@@ -15,11 +15,13 @@ import {
   accountQuery,
   accountsQuery,
   balanceQuery,
+  fetchSession,
   type StatementLine,
   statementQuery,
   type StatementRange,
 } from "./ledgerApi";
 import { formatPence } from "./money";
+import { RouterLink } from "./RouterLink";
 
 const route = getRouteApi("/accounts/$accountId");
 
@@ -131,7 +133,9 @@ function StatementGrid({
   const hasNextPage = page < pages.length - 1 || statement.hasNextPage;
   const nameOf = (id: string | null) =>
     id === null ? "" : (accounts.data?.find((a) => a.id === id)?.name ?? id);
-  const columns = statementColumns(nameOf);
+  // Operators open each Statement Line's Transaction; only they may see Transactions.
+  const session = useQuery({ queryKey: ["session"], queryFn: fetchSession });
+  const columns = statementColumns(nameOf, session.data?.role === "OPERATOR");
 
   return (
     <>
@@ -165,6 +169,7 @@ function StatementGrid({
 
 function statementColumns(
   nameOf: (id: string | null) => string,
+  linkTransactions: boolean,
 ): GridColDef<StatementLine>[] {
   return [
     {
@@ -173,6 +178,16 @@ function statementColumns(
       flex: 1,
       valueFormatter: (value: string) =>
         dayjs(value).format("D MMM YYYY, HH:mm"),
+      renderCell: linkTransactions
+        ? ({ row, formattedValue }) => (
+            <RouterLink
+              to="/transactions/$transactionId"
+              params={{ transactionId: row.transactionId }}
+            >
+              {formattedValue}
+            </RouterLink>
+          )
+        : undefined,
     },
     {
       field: "side",
