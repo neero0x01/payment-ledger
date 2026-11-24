@@ -55,16 +55,29 @@ const PAID_B: FakeTransaction = {
 function installLedger({
   transactions = [PAID_B],
   payments = [PAYMENT],
-}: { transactions?: FakeTransaction[]; payments?: FakePayment[] } = {}) {
+  unavailableForFirstCorrection = false,
+}: {
+  transactions?: FakeTransaction[];
+  payments?: FakePayment[];
+  /** The first Correction request fails with 503 before reaching the ledger. */
+  unavailableForFirstCorrection?: boolean;
+} = {}) {
   const writeSide = fakeTransactions({
     transactions,
     payments,
     correctionsAccountId: CORRECTIONS.id,
   });
+  let unavailable = unavailableForFirstCorrection;
   return installFakeLedger({
     accounts,
     role: "OPERATOR",
-    routes: writeSide.routes,
+    routes: (request) => {
+      if (unavailable && request.path === "/v1/corrections") {
+        unavailable = false;
+        return new Response(null, { status: 503 });
+      }
+      return writeSide.routes(request);
+    },
   });
 }
 
@@ -242,4 +255,73 @@ test("correcting a Transaction whose Payment is Pending says to wait for the sch
   expect(await within(form).findByRole("alert")).toHaveTextContent(
     "This Transaction's Payment is still Pending. It can be corrected once the scheme has decided.",
   );
+});
+
+test("retrying a failed Correction sends the same Idempotency-Key", async () => {
+  const ledger = installLedger({ unavailableForFirstCorrection: true });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const form = await postReversingCorrection(user);
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "The Correction failed",
+  );
+  await user.click(
+    within(form).getByRole("button", { name: "Post Correction" }),
+  );
+
+  expect(
+    await screen.findByRole("link", { name: /^Correction, / }),
+  ).toBeInTheDocument();
+  const keys = correctionPosts(ledger).map((r) =>
+    r.headers.get("Idempotency-Key"),
+  );
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).toBe(keys[0]);
+});
+
+test("a double-clicked Correction is posted once", async () => {
+  const ledger = installLedger();
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+  const form = await screen.findByRole("form", { name: "Correction" });
+  await user.selectOptions(
+    within(form).getByLabelText(/^Correction Reason/),
+    "Duplicate Posting",
+  );
+  await user.type(within(form).getByLabelText(/^Note/), "Paid twice");
+
+  await user.dblClick(
+    within(form).getByRole("button", { name: "Post Correction" }),
+  );
+
+  expect(
+    await screen.findByRole("link", { name: /^Correction, / }),
+  ).toBeInTheDocument();
+  const keys = new Set(
+    correctionPosts(ledger).map((r) => r.headers.get("Idempotency-Key")),
+  );
+  expect(keys.size).toBe(1);
+});
+
+test("a new Correction after one is posted gets a new Idempotency-Key", async () => {
+  const ledger = installLedger();
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  await postReversingCorrection(user);
+  await screen.findByRole("link", { name: /^Correction, / });
+  const form = await postReversingCorrection(user);
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "already been reversed",
+  );
+  const keys = correctionPosts(ledger).map((r) =>
+    r.headers.get("Idempotency-Key"),
+  );
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).not.toBe(keys[0]);
 });
