@@ -63,8 +63,8 @@ class SchemeDispatcher {
     }
     List<SchemeSubmission> claimed =
         Objects.requireNonNull(
-            transaction.execute(
-                status -> payments.claimFasterPaymentsToSubmit(BATCH_SIZE, RETRY_DELAY, resendAfter)));
+            transaction.execute(status ->
+                payments.claimFasterPaymentsToSubmit(BATCH_SIZE, RETRY_DELAY, resendAfter)));
     for (SchemeSubmission submission : claimed) {
       try {
         scheme.submit(submission);
