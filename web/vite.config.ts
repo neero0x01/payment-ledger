@@ -21,5 +21,7 @@ export default defineConfig({
     env: { TZ: "UTC" },
     globals: true,
     setupFiles: ["./src/test-setup.ts"],
+    // e2e/ holds the Playwright smoke test, which runs against Compose.
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });

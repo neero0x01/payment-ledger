@@ -34,6 +34,11 @@
     <spotless.version>3.12.0</spotless.version>
     <google-java-format.version>2.0.0</google-java-format.version>
     <datafaker.version>2.5.4</datafaker.version>
+    <jib.version>3.5.2</jib.version>
+    <!-- Where Jib pushes the service images, and their tag. CI on main also tags each image with
+         the commit SHA (-Djib.to.tags). -->
+    <image.registry>ghcr.io/neero0x01/payment-ledger</image.registry>
+    <image.tag>latest</image.tag>
   </properties>
 
   <dependencyManagement>
@@ -69,6 +74,37 @@
   </dependencyManagement>
 
   <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <!-- Builds the ledger, projector and simulator images for the arm64 EC2 box (ADR 0011)
+               without a Dockerfile. Each service names its main class and ports. -->
+          <groupId>com.google.cloud.tools</groupId>
+          <artifactId>jib-maven-plugin</artifactId>
+          <version>${jib.version}</version>
+          <configuration>
+            <from>
+              <image>eclipse-temurin:25-jre</image>
+              <platforms>
+                <platform>
+                  <architecture>arm64</architecture>
+                  <os>linux</os>
+                </platform>
+              </platforms>
+            </from>
+            <to>
+              <image>${image.registry}/${project.artifactId}:${image.tag}</image>
+            </to>
+            <container>
+              <labels>
+                <!-- Links the GHCR package to this repository. -->
+                <org.opencontainers.image.source>https://github.com/neero0x01/payment-ledger</org.opencontainers.image.source>
+              </labels>
+            </container>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
     <plugins>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
