@@ -16,8 +16,8 @@ class DeterministicSeedTest {
   @Test
   void every_run_generates_identical_data(@TempDir Path first, @TempDir Path second)
       throws IOException {
-    new SeedGenerator(40, SeedFixtures.INTERNAL).generate(new CopyFiles(first));
-    new SeedGenerator(40, SeedFixtures.INTERNAL).generate(new CopyFiles(second));
+    generateInto(first);
+    generateInto(second);
 
     List<Path> tables = filesIn(first);
     assertThat(tables).isNotEmpty();
@@ -26,6 +26,12 @@ class DeterministicSeedTest {
       byte[] content = Files.readAllBytes(first.resolve(table));
       assertThat(content).as("%s is empty", table).isNotEmpty();
       assertThat(Files.readAllBytes(second.resolve(table))).as("%s", table).isEqualTo(content);
+    }
+  }
+
+  private static void generateInto(Path directory) {
+    try (CopyFiles files = new CopyFiles(directory)) {
+      new SeedGenerator(40, SeedFixtures.INTERNAL).generate(files);
     }
   }
 
