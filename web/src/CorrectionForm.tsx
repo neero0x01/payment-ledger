@@ -11,17 +11,31 @@ import {
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
+import { accountQuery } from "./ledgerApi";
+import { parsePounds } from "./money";
 import {
   type CorrectionReason,
   type CorrectionRequest,
   LedgerProblem,
   postCorrection,
+  type Side,
   type Transaction,
 } from "./transactionApi";
+import { TransactionLink } from "./TransactionLink";
 
 type Kind = CorrectionRequest["kind"];
+
+/** The Customer Accounts the Transaction touches: the ones an Adjustment of it could move money on. */
+function useCustomerAccountsOf(transaction: Transaction) {
+  const accounts = useQueries({
+    queries: transaction.entries.map((e) => accountQuery(e.accountId)),
+  });
+  return accounts
+    .flatMap((account) => (account.data ? [account.data] : []))
+    .filter((account) => account.kind === "CUSTOMER");
+}
 
 export const CORRECTION_REASON: Record<CorrectionReason, string> = {
   DUPLICATE_POSTING: "Duplicate Posting",
@@ -52,6 +66,12 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
   const [kind, setKind] = useState<Kind>("REVERSING");
   const [reason, setReason] = useState<CorrectionReason | "">("");
   const [note, setNote] = useState("");
+  const customerAccounts = useCustomerAccountsOf(transaction);
+  const [chosenAccountId, setAccountId] = useState("");
+  const accountId = chosenAccountId || customerAccounts[0]?.id || "";
+  const [amount, setAmount] = useState("");
+  const [amountInvalid, setAmountInvalid] = useState(false);
+  const [direction, setDirection] = useState<Side>("CREDIT");
   /**
    * The submission not yet known to be posted, with its Idempotency-Key. Sending the same request
    * again, as a retry or a double-click, reuses the key; a changed request or a posted one starts a
@@ -71,6 +91,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
       submission.current = null;
       setReason("");
       setNote("");
+      setAmount("");
       return queryClient.invalidateQueries({ queryKey: ["transactions"] });
     },
   });
@@ -78,12 +99,23 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!reason) return;
-    const request: CorrectionRequest = {
-      kind: "REVERSING",
-      transactionId: transaction.id,
-      reason,
-      note,
-    };
+    let request: CorrectionRequest;
+    if (kind === "REVERSING") {
+      request = { kind, transactionId: transaction.id, reason, note };
+    } else {
+      const amountPence = parsePounds(amount);
+      setAmountInvalid(!amountPence);
+      if (!amountPence) return;
+      request = {
+        kind,
+        transactionId: transaction.id,
+        reason,
+        note,
+        accountId,
+        amountPence,
+        direction,
+      };
+    }
     const body = JSON.stringify(request);
     if (submission.current?.request !== body) {
       submission.current = { request: body, key: crypto.randomUUID() };
@@ -117,6 +149,57 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
             />
           </RadioGroup>
         </FormControl>
+        {kind === "ADJUSTMENT" && (
+          <>
+            <TextField
+              select
+              required
+              id="adjustment-account"
+              label="Customer Account"
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              slotProps={{
+                select: { native: true },
+                inputLabel: { shrink: true },
+              }}
+            >
+              {customerAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.name}
+                </option>
+              ))}
+            </TextField>
+            <TextField
+              required
+              id="adjustment-amount"
+              label="Amount (£)"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              error={amountInvalid}
+              helperText={
+                amountInvalid
+                  ? "Enter an amount in pounds, such as 5.00."
+                  : undefined
+              }
+              slotProps={{ htmlInput: { inputMode: "decimal" } }}
+            />
+            <TextField
+              select
+              required
+              id="adjustment-direction"
+              label="Direction"
+              value={direction}
+              onChange={(e) => setDirection(e.target.value as Side)}
+              slotProps={{
+                select: { native: true },
+                inputLabel: { shrink: true },
+              }}
+            >
+              <option value="CREDIT">Credit the Customer Account</option>
+              <option value="DEBIT">Debit the Customer Account</option>
+            </TextField>
+          </>
+        )}
         <TextField
           select
           required
@@ -143,6 +226,11 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
           value={note}
           onChange={(e) => setNote(e.target.value)}
         />
+        {correction.isSuccess && (
+          <Alert severity="success">
+            Posted <TransactionLink transactionId={correction.data.id} />
+          </Alert>
+        )}
         {correction.isError && (
           <Alert severity="error">{refusal(correction.error)}</Alert>
         )}
