@@ -1,5 +1,6 @@
 package com.paymentledger.seed;
 
+import com.paymentledger.ledger.posting.PostedTransaction;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -52,6 +54,15 @@ public final class CopyFiles implements SeedSink, AutoCloseable {
         seeded.accountNumber(),
         seeded.createdAt());
   }
+
+  @Override
+  public void payment(SeededPayment payment) {}
+
+  @Override
+  public void transaction(PostedTransaction transaction, UUID eventId) {}
+
+  @Override
+  public void balance(SeededBalance balance) {}
 
   @Override
   public void close() {
