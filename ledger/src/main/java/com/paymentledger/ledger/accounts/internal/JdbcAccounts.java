@@ -120,6 +120,19 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public boolean isInDemoSandbox(AccountId id) {
+    return jdbc.sql(
+            """
+            select exists (
+                select from account a join customer c on c.id = a.customer_id
+                where a.id = :id and c.demo)
+            """)
+        .param("id", id.value())
+        .query(Boolean.class)
+        .single();
+  }
+
+  @Override
   public List<Account> visibleTo(Principal principal) {
     return principal
         .customerId()

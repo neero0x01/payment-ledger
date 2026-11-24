@@ -32,6 +32,9 @@ public interface Accounts {
 
   Optional<Account> find(AccountId id);
 
+  /** Whether the Account is a Customer Account in a Demo Sandbox. */
+  boolean isInDemoSandbox(AccountId id);
+
   /**
    * The Accounts the Principal may see, oldest first: a Customer's own Customer Accounts, or every
    * Account for an Operator.

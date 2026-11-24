@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.demo.internal;
 
+import com.paymentledger.ledger.accounts.Logins;
 import com.paymentledger.ledger.demo.internal.DemoSandboxes.DemoSandbox;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
@@ -25,8 +26,8 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * {@code POST /v1/demo-sessions} is public: it starts a session as the Customer of a new Demo
- * Sandbox, without a username or password.
+ * {@code POST /v1/demo-sessions} is public: it starts a session, without a username or password, as
+ * the Customer of a new Demo Sandbox or as the demo Operator.
  */
 @RestController
 class DemoSessionController {
@@ -34,9 +35,11 @@ class DemoSessionController {
   private final SecurityContextRepository securityContexts =
       new HttpSessionSecurityContextRepository();
   private final DemoSandboxes sandboxes;
+  private final Logins logins;
 
-  DemoSessionController(DemoSandboxes sandboxes) {
+  DemoSessionController(DemoSandboxes sandboxes, Logins logins) {
     this.sandboxes = sandboxes;
+    this.logins = logins;
   }
 
   @PostMapping(path = "/{version}/demo-sessions", version = "1")
@@ -45,8 +48,13 @@ class DemoSessionController {
       @RequestBody DemoSessionRequest request,
       HttpServletRequest http,
       HttpServletResponse response) {
-    if (request.role() != Role.CUSTOMER) {
+    Role role = request.role();
+    if (role == null) {
       throw Problem.validationFailed("A demo session's role is CUSTOMER or OPERATOR");
+    }
+    if (role == Role.OPERATOR) {
+      logIn(Principal.operator(logins.demoOperator()), http, response);
+      return new DemoSessionResponse(Role.OPERATOR.name(), null, List.of());
     }
     DemoSandbox sandbox = sandboxes.create();
     logIn(Principal.customer(sandbox.customer()), http, response);
