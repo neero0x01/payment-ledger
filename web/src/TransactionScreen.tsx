@@ -1,5 +1,7 @@
 import {
   Alert,
+  List,
+  ListItem,
   Paper,
   Stack,
   Table,
@@ -60,6 +62,13 @@ export function TransactionScreen() {
             Reverses <TransactionLink transactionId={t.reversesTransactionId} />
           </Typography>
         )}
+        {t.correctsTransactionId &&
+          t.correctsTransactionId !== t.reversesTransactionId && (
+            <Typography>
+              Corrects{" "}
+              <TransactionLink transactionId={t.correctsTransactionId} />
+            </Typography>
+          )}
         {t.reversedByTransactionId && (
           <Typography>
             Reversed by{" "}
@@ -75,6 +84,20 @@ export function TransactionScreen() {
           <Typography>{`Note: ${t.correctionNote}`}</Typography>
         )}
       </Stack>
+      {t.correctedByTransactionIds.length > 0 && (
+        <Stack spacing={1}>
+          <Typography variant="h6" component="h2" id="corrections-heading">
+            Corrections
+          </Typography>
+          <List dense aria-labelledby="corrections-heading" disablePadding>
+            {t.correctedByTransactionIds.map((id) => (
+              <ListItem key={id} disableGutters>
+                <TransactionLink transactionId={id} />
+              </ListItem>
+            ))}
+          </List>
+        </Stack>
+      )}
       <Entries transaction={t} />
       <Paper sx={{ p: 3 }}>
         <CorrectionForm transaction={t} />

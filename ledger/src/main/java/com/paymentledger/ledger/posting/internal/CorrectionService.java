@@ -50,7 +50,9 @@ class CorrectionService {
 
   /**
    * Posts an Adjustment of the amount to the Customer Account on the given side, against the
-   * Corrections Account. Corrections skip the funds check.
+   * Corrections Account, linked to the Transaction it corrects if it names one. Corrections skip
+   * the funds check. Refuses to correct a Transaction whose Payment is still Pending as
+   * payment-pending.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
   IdempotentOutcome<PostedTransaction> adjust(
@@ -59,7 +61,9 @@ class CorrectionService {
       AccountId customerAccount,
       Side side,
       Money amount,
-      CorrectionDetails correction) {
+      CorrectionDetails correction,
+      Optional<TransactionId> corrects) {
+    Optional<PostedTransaction> mistake = corrects.map(this::existing);
     Account account =
         accounts
             .find(customerAccount)
@@ -81,15 +85,17 @@ class CorrectionService {
                 "ADJUSTMENT",
                 customerAccount.value().toString(),
                 side.name(),
-                Long.toString(amount.pence())));
+                Long.toString(amount.pence()),
+                corrects.map(id -> id.value().toString()).orElse("")));
     Optional<IdempotentOutcome<PostedTransaction>> replay = replay(keyed);
     if (replay.isPresent()) {
       return replay.get();
     }
+    mistake.ifPresent(this::refuseWhilePaymentPending);
     return posting
         .postCorrection(
             NewTransaction.adjustment(
-                customerAccount, side, amount, accounts.corrections(), correction),
+                customerAccount, side, amount, accounts.corrections(), correction, corrects),
             keyed)
         .map(this::find);
   }
@@ -106,10 +112,7 @@ class CorrectionService {
       IdempotencyKey key,
       TransactionId original,
       CorrectionDetails correction) {
-    PostedTransaction mistake =
-        posting
-            .find(original)
-            .orElseThrow(() -> Problem.notFound("No Transaction " + original.value() + " exists"));
+    PostedTransaction mistake = existing(original);
     if (logins.isDemoOperator(operator) && !isOnDemoSandboxAccountsOnly(mistake)) {
       throw outsideDemoSandboxes();
     }
@@ -120,10 +123,7 @@ class CorrectionService {
     if (replay.isPresent()) {
       return replay.get();
     }
-    if (mistake.payment().filter(pendingPayments::isPending).isPresent()) {
-      throw Problem.paymentPending(
-          "Transaction " + original.value() + " belongs to a Payment that is still Pending");
-    }
+    refuseWhilePaymentPending(mistake);
     if (posting.isReversed(original)) {
       throw alreadyReversed(original);
     }
@@ -139,6 +139,20 @@ class CorrectionService {
   /** The Correction the Operator already posted with the key, unless a different request did. */
   private Optional<IdempotentOutcome<PostedTransaction>> replay(KeyedCorrection keyed) {
     return posting.correctionPostedWith(keyed).map(id -> IdempotentOutcome.replay(find(id)));
+  }
+
+  private PostedTransaction existing(TransactionId transaction) {
+    return posting
+        .find(transaction)
+        .orElseThrow(() -> Problem.notFound("No Transaction " + transaction.value() + " exists"));
+  }
+
+  /** A late Scheme Outcome could post a Reversal of it, refunding the Customer twice. */
+  private void refuseWhilePaymentPending(PostedTransaction mistake) {
+    if (mistake.payment().filter(pendingPayments::isPending).isPresent()) {
+      throw Problem.paymentPending(
+          "Transaction " + mistake.id().value() + " belongs to a Payment that is still Pending");
+    }
   }
 
   private PostedTransaction find(TransactionId posted) {

@@ -114,10 +114,10 @@ class PaymentRepository {
    * Claims up to the limit of Pending Faster Payments due a Scheme Submission, oldest first,
    * counting a Scheme Submission for each, and returns what to submit. A Payment is due when it has
    * never been submitted, or when its last attempt is older than its delay: the retry delay when
-   * the last Scheme Submission failed, the resend delay when it was sent but no Scheme Outcome came,
-   * and the longer stuck resend delay once it is a Stuck Payment. A Stuck Payment is still sent,
-   * with the same End-to-End Id, so it completes once the scheme answers. Rows another dispatcher
-   * has locked are skipped.
+   * the last Scheme Submission failed, the resend delay when it was sent but no Scheme Outcome
+   * came, and the longer stuck resend delay once it is a Stuck Payment. A Stuck Payment is still
+   * sent, with the same End-to-End Id, so it completes once the scheme answers. Rows another
+   * dispatcher has locked are skipped.
    */
   List<SchemeSubmission> claimFasterPaymentsToSubmit(
       int limit, Duration retryDelay, Duration resendAfter, Duration stuckResendAfter) {

@@ -13,6 +13,7 @@ import com.paymentledger.ledger.shared.Principal;
 import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
+import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.ResponseEntity;
@@ -95,7 +96,8 @@ class CorrectionController {
         new AccountId(account),
         direction,
         Problem.requirePositive(Money.ofPence(amountPence)),
-        details);
+        details,
+        Optional.ofNullable(request.transactionId()).map(TransactionId::new));
   }
 
   /** Every Correction carries a Correction Reason and a note. */
@@ -116,7 +118,10 @@ class CorrectionController {
     ADJUSTMENT
   }
 
-  /** For an Adjustment, the direction is the side posted to the Customer Account. */
+  /**
+   * For an Adjustment, the direction is the side posted to the Customer Account, and the optional
+   * transactionId names the Transaction it corrects.
+   */
   record CorrectionRequest(
       @Nullable CorrectionKind kind,
       @Nullable UUID transactionId,

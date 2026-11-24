@@ -29,6 +29,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Random;
 import net.datafaker.Faker;
@@ -251,7 +252,8 @@ public final class SeedGenerator {
                 amount,
                 internal.corrections(),
                 new CorrectionDetails(
-                    CorrectionReason.GOODWILL, "Goodwill payment after a complaint")),
+                    CorrectionReason.GOODWILL, "Goodwill payment after a complaint"),
+                Optional.empty()),
             now());
   }
 

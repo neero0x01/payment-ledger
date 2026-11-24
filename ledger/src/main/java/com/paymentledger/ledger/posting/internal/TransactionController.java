@@ -31,7 +31,10 @@ class TransactionController {
     return posting
         .find(new TransactionId(id))
         .map(transaction ->
-            TransactionResponse.of(transaction, posting.reversalOf(transaction.id())))
+            TransactionResponse.of(
+                transaction,
+                posting.reversalOf(transaction.id()),
+                posting.correctionsOf(transaction.id())))
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
   }
 
@@ -45,15 +48,19 @@ class TransactionController {
       @Nullable String correctionNote,
       String source,
       List<EntryResponse> entries,
-      @Nullable UUID reversedByTransactionId) {
+      @Nullable UUID reversedByTransactionId,
+      @Nullable UUID correctsTransactionId,
+      List<UUID> correctedByTransactionIds) {
 
-    /** A Transaction just posted, which nothing has reversed yet. */
+    /** A Transaction just posted, which nothing has reversed or corrected yet. */
     static TransactionResponse of(PostedTransaction transaction) {
-      return of(transaction, Optional.empty());
+      return of(transaction, Optional.empty(), List.of());
     }
 
     static TransactionResponse of(
-        PostedTransaction transaction, Optional<TransactionId> reversedBy) {
+        PostedTransaction transaction,
+        Optional<TransactionId> reversedBy,
+        List<TransactionId> correctedBy) {
       CorrectionFields correction = CorrectionFields.of(transaction.correction());
       return new TransactionResponse(
           transaction.id().value(),
@@ -65,7 +72,9 @@ class TransactionController {
           correction.note(),
           transaction.source().name(),
           transaction.postedEntries().stream().map(EntryResponse::of).toList(),
-          reversedBy.map(TransactionId::value).orElse(null));
+          reversedBy.map(TransactionId::value).orElse(null),
+          transaction.corrects().map(TransactionId::value).orElse(null),
+          correctedBy.stream().map(TransactionId::value).toList());
     }
   }
 

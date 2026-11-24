@@ -20,6 +20,7 @@ export type FakeTransaction = {
   bookingTime: string;
   paymentId?: string;
   reversesTransactionId?: string;
+  adjustsTransactionId?: string;
   correctionReason?: string;
   correctionNote?: string;
   entries: FakeTransactionEntry[];
@@ -78,6 +79,12 @@ export function fakeTransactions({
   const find = (id: string) => posted.find((t) => t.id === id);
   const reversalOf = (id: string) =>
     posted.find((t) => t.reversesTransactionId === id)?.id ?? null;
+  const correctsOf = (t: FakeTransaction) =>
+    t.kind === "CORRECTION"
+      ? (t.reversesTransactionId ?? t.adjustsTransactionId ?? null)
+      : null;
+  const correctionsOf = (id: string) =>
+    posted.filter((t) => correctsOf(t) === id).map((t) => t.id);
   const view = (t: FakeTransaction) => ({
     id: t.id,
     kind: t.kind,
@@ -88,6 +95,8 @@ export function fakeTransactions({
     correctionNote: t.correctionNote ?? null,
     entries: t.entries.map((e, i) => ({ ...e, entrySeq: i + 1 })),
     reversedByTransactionId: reversalOf(t.id),
+    correctsTransactionId: correctsOf(t),
+    correctedByTransactionIds: correctionsOf(t.id),
   });
   const balanceAfter = (accountId: string, side: string, amount: number) => {
     const before =
@@ -175,6 +184,8 @@ export function fakeTransactions({
       bookingTime: new Date().toISOString(),
       reversesTransactionId:
         body.kind === "REVERSING" ? corrected?.id : undefined,
+      adjustsTransactionId:
+        body.kind === "ADJUSTMENT" ? corrected?.id : undefined,
       correctionReason: body.reason,
       correctionNote: body.note,
       entries,

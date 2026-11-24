@@ -66,6 +66,7 @@ final class SeedPosting {
             transaction.payment().orElse(null),
             transaction.reverses().orElse(null),
             transaction.correction().orElse(null),
+            transaction.adjusts().orElse(null),
             TransactionSource.SEED,
             posted);
     sink.transaction(postedTransaction, random.uuidV4());

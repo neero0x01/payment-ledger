@@ -27,8 +27,9 @@ import org.springframework.test.web.servlet.client.RestTestClient;
  * automatically. With an in-memory fake PaymentScheme.
  *
  * <p>The dispatcher re-sends after 1 s instead of 15 s, flags a Stuck Payment after 4 s instead of
- * 5 min, and re-sends a Stuck Payment after 2 s instead of 1 min. The context has its own Postgres and Kafka, closed after the class, so no other cached
- * context's dispatcher claims these Payments and the Stuck Payment gauge counts only this class's.
+ * 5 min, and re-sends a Stuck Payment after 2 s instead of 1 min. The context has its own Postgres
+ * and Kafka, closed after the class, so no other cached context's dispatcher claims these Payments
+ * and the Stuck Payment gauge counts only this class's.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -204,6 +205,32 @@ class SchemeResilienceTest {
         .isEqualTo("/problems/payment-pending");
 
     assertThat(payment(pending.id()).transactionIds()).hasSize(1);
+    assertThat(balancePenceOf(a)).isEqualTo(60_00);
+  }
+
+  @Test
+  void adjustment_naming_a_transaction_whose_payment_is_pending_is_refused_as_payment_pending() {
+    PaymentView pending = makeFasterPayment(40_00);
+
+    operator
+        .post()
+        .uri("/v1/corrections")
+        .header("Idempotency-Key", UUID.randomUUID().toString())
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"kind": "ADJUSTMENT", "transactionId": "%s", "reason": "WRONG_AMOUNT",
+             "note": "Charged 1.00 too much", "accountId": "%s", "amountPence": 100,
+             "direction": "CREDIT"}
+            """
+                .formatted(pending.transactionIds().getFirst(), a.value()))
+        .exchange()
+        .expectStatus()
+        .isEqualTo(HttpStatus.CONFLICT)
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/payment-pending");
+
     assertThat(balancePenceOf(a)).isEqualTo(60_00);
   }
 

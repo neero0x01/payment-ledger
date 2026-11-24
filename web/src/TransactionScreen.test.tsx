@@ -184,8 +184,9 @@ test("a Correction's detail shows its Correction Reason and note", async () => {
   renderApp(`/transactions/${PAID_B.id}`);
   await logIn(user);
 
+  const reversedBy = await screen.findByText(/^Reversed by/);
   await user.click(
-    await screen.findByRole("link", {
+    await within(reversedBy).findByRole("link", {
       name: "Correction, 3 Nov 2026, 10:16",
     }),
   );
@@ -197,6 +198,67 @@ test("a Correction's detail shows its Correction Reason and note", async () => {
     screen.getByText("Correction Reason: Duplicate Posting"),
   ).toBeInTheDocument();
   expect(screen.getByText("Note: Paid twice by mistake")).toBeInTheDocument();
+});
+
+test("a Transaction lists every Correction of it, and an Adjustment links back", async () => {
+  const adjustment: FakeTransaction = {
+    id: "019a0000-0000-7000-9000-000000000003",
+    kind: "CORRECTION",
+    bookingTime: "2026-11-04T09:00:00Z",
+    adjustsTransactionId: PAID_B.id,
+    correctionReason: "WRONG_AMOUNT",
+    correctionNote: "Charged £5 too much",
+    entries: [
+      {
+        accountId: CORRECTIONS.id,
+        side: "DEBIT",
+        amountPence: 5_00,
+        balanceAfterPence: 5_00,
+      },
+      {
+        accountId: ACCOUNT_A.id,
+        side: "CREDIT",
+        amountPence: 5_00,
+        balanceAfterPence: 75_00,
+      },
+    ],
+  };
+  const reversing: FakeTransaction = {
+    ...REVERSAL,
+    id: "019a0000-0000-7000-9000-000000000004",
+    kind: "CORRECTION",
+    bookingTime: "2026-11-05T09:30:00Z",
+    paymentId: undefined,
+    correctionReason: "DUPLICATE_POSTING",
+    correctionNote: "Paid twice by mistake",
+  };
+  installLedger({ transactions: [PAID_B, adjustment, reversing] });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const list = await screen.findByRole("list", { name: "Corrections" });
+  expect(
+    await within(list).findByRole("link", {
+      name: "Correction, 4 Nov 2026, 09:00",
+    }),
+  ).toBeInTheDocument();
+  expect(
+    await within(list).findByRole("link", {
+      name: "Correction, 5 Nov 2026, 09:30",
+    }),
+  ).toBeInTheDocument();
+
+  await user.click(
+    within(list).getByRole("link", { name: "Correction, 4 Nov 2026, 09:00" }),
+  );
+
+  const corrects = await screen.findByText(/^Corrects/);
+  expect(
+    await within(corrects).findByRole("link", {
+      name: "Payment, 3 Nov 2026, 10:15",
+    }),
+  ).toBeInTheDocument();
 });
 
 const correctionPosts = (ledger: ReturnType<typeof installLedger>) =>
