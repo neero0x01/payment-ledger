@@ -248,6 +248,15 @@ class JdbcPosting implements Posting {
 
   @Override
   @Transactional(readOnly = true)
+  public Optional<TransactionId> reversalOf(TransactionId transaction) {
+    return jdbc.sql("select id from ledger_transaction where reverses_transaction_id = :id")
+        .param("id", transaction.value())
+        .query((rs, row) -> new TransactionId(rs.getObject("id", UUID.class)))
+        .optional();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
   public Optional<Money> balanceOf(AccountId account) {
     if (accounts.find(account).isEmpty()) {
       return Optional.empty();
