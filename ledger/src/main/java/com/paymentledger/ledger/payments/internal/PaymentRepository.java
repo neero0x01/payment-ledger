@@ -8,6 +8,7 @@ import com.paymentledger.ledger.payments.PaymentType;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.payments.SchemeReasonCode;
 import com.paymentledger.ledger.payments.SchemeSubmission;
+import com.paymentledger.ledger.payments.StuckPayment;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
@@ -198,6 +199,31 @@ class PaymentRepository {
             """)
         .query(Long.class)
         .single();
+  }
+
+  /** Up to the limit of the Stuck Payments, oldest first. */
+  List<StuckPayment> oldestStuckPayments(int limit) {
+    return jdbc.sql(
+            """
+            select id, debtor_account_id, payee_sort_code, payee_account_number, payee_name,
+                   amount_pence, created_at
+            from payment
+            where type = 'FASTER_PAYMENT' and status = 'PENDING' and stuck
+            order by created_at
+            limit :limit
+            """)
+        .param("limit", limit)
+        .query((rs, rowNum) ->
+            new StuckPayment(
+                new PaymentId(rs.getObject("id", UUID.class)),
+                new AccountId(rs.getObject("debtor_account_id", UUID.class)),
+                new Payee.AtAnotherBank(
+                    rs.getString("payee_sort_code"),
+                    rs.getString("payee_account_number"),
+                    rs.getString("payee_name")),
+                Money.ofPence(rs.getLong("amount_pence")),
+                rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+        .list();
   }
 
   /** Marks the Payment Completed and returns when it was. */

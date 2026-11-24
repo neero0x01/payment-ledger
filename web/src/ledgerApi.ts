@@ -210,6 +210,44 @@ export const balanceQuery = (accountId: string, asAt?: string) =>
     refetchInterval: asAt ? false : POLL_INTERVAL_MS,
   });
 
+/** A Faster Payment still Pending after its Scheme Outcome deadline. */
+export type StuckPayment = {
+  paymentId: string;
+  debtorAccountId: string;
+  payeeName: string;
+  payeeSortCode: string;
+  payeeAccountNumber: string;
+  amountPence: number;
+  madeAt: string;
+};
+
+/**
+ * The Operator dashboard: per-minute Read Model figures (the rate over the last full minute,
+ * outcomes and Rejection Reasons over the last hour) and the ledger's gauges. A gauge with no
+ * reading is null; the balanced check's fields are null before its first run.
+ */
+export type Dashboard = {
+  paymentsPerSecond: number;
+  outcomes: { completed: number; rejected: number };
+  rejectionReasons: Record<RejectionReason, number>;
+  outboxLag: { unpublished: number | null; oldestAgeSeconds: number | null };
+  projectionFreshnessSeconds: number | null;
+  balancedCheck: {
+    balanced: boolean | null;
+    imbalancePence: number | null;
+    lastRunAt: string | null;
+  };
+  stuckPaymentCount: number | null;
+  stuckPayments: StuckPayment[];
+};
+
+export const dashboardQuery = () =>
+  queryOptions({
+    queryKey: ["dashboard"],
+    queryFn: () => getJson<Dashboard>("/v1/dashboard", "Dashboard"),
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+
 /** A Payment as it stands now, polled while it is Pending; Completed and Rejected are final. */
 export const paymentQuery = (paymentId: string) =>
   queryOptions({

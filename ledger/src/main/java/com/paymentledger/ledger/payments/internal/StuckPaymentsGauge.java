@@ -7,11 +7,11 @@ import org.springframework.stereotype.Component;
 
 /** The Stuck Payments gauge (spec §11): how many Faster Payments are Stuck Payments now. */
 @Component
-class StuckPayments implements MeterBinder {
+class StuckPaymentsGauge implements MeterBinder {
 
   private final PaymentRepository payments;
 
-  StuckPayments(PaymentRepository payments) {
+  StuckPaymentsGauge(PaymentRepository payments) {
     this.payments = payments;
   }
 
