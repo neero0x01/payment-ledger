@@ -2,6 +2,7 @@ import {
   Alert,
   Box,
   Button,
+  Chip,
   FormControl,
   FormControlLabel,
   FormLabel,
@@ -181,11 +182,25 @@ export function NewPaymentScreen() {
   );
 }
 
-const STATUS_LABEL: Record<Payment["status"], string> = {
-  PENDING: "Pending",
-  COMPLETED: "Completed",
-  REJECTED: "Rejected",
+const STATUS: Record<
+  Payment["status"],
+  { label: string; color: "warning" | "success" | "error" }
+> = {
+  PENDING: { label: "Pending", color: "warning" },
+  COMPLETED: { label: "Completed", color: "success" },
+  REJECTED: { label: "Rejected", color: "error" },
 };
+
+/** The Rejection Reason in the glossary's words, with the scheme's reason code if it gave one. */
+function rejectionReason({ rejectionReason, schemeReasonCode }: Payment) {
+  if (rejectionReason === "INSUFFICIENT_FUNDS") return "Insufficient Funds";
+  if (rejectionReason === "SCHEME_REJECTED") {
+    return schemeReasonCode
+      ? `Scheme Rejected (${schemeReasonCode})`
+      : "Scheme Rejected";
+  }
+  return null;
+}
 
 /** The Payment's live Payment Status, polled until it is final. */
 function PaymentStatus({ paymentId }: { paymentId: string }) {
@@ -193,12 +208,25 @@ function PaymentStatus({ paymentId }: { paymentId: string }) {
   const payment = useQuery(paymentQuery(paymentId));
   return (
     <Paper component="section" aria-labelledby={heading} sx={{ p: 3 }}>
-      <Typography variant="h5" component="h2" id={heading}>
-        Payment Status
-      </Typography>
-      {payment.isSuccess && (
-        <Typography>{STATUS_LABEL[payment.data.status]}</Typography>
-      )}
+      <Stack spacing={1}>
+        <Typography variant="h5" component="h2" id={heading}>
+          Payment Status
+        </Typography>
+        {payment.isSuccess && (
+          <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
+            <Chip
+              label={STATUS[payment.data.status].label}
+              color={STATUS[payment.data.status].color}
+            />
+            {payment.data.status === "REJECTED" && (
+              <Typography>{rejectionReason(payment.data)}</Typography>
+            )}
+          </Stack>
+        )}
+        {payment.isError && (
+          <Alert severity="error">The Payment Status is unavailable.</Alert>
+        )}
+      </Stack>
     </Paper>
   );
 }
