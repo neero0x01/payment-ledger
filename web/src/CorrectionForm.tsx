@@ -12,7 +12,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import {
   type CorrectionReason,
   type CorrectionRequest,
@@ -52,6 +52,12 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
   const [kind, setKind] = useState<Kind>("REVERSING");
   const [reason, setReason] = useState<CorrectionReason | "">("");
   const [note, setNote] = useState("");
+  /**
+   * The submission not yet known to be posted, with its Idempotency-Key. Sending the same request
+   * again, as a retry or a double-click, reuses the key; a changed request or a posted one starts a
+   * new submission.
+   */
+  const submission = useRef<{ request: string; key: string } | null>(null);
   const correction = useMutation({
     mutationFn: ({
       request,
@@ -60,22 +66,29 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
       request: CorrectionRequest;
       idempotencyKey: string;
     }) => postCorrection(request, idempotencyKey),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ["transactions"] }),
+    onSuccess: () => {
+      // The submission is done: the next Correction is filled in afresh and gets a new key.
+      submission.current = null;
+      setReason("");
+      setNote("");
+      return queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    },
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
     if (!reason) return;
-    correction.mutate({
-      request: {
-        kind: "REVERSING",
-        transactionId: transaction.id,
-        reason,
-        note,
-      },
-      idempotencyKey: crypto.randomUUID(),
-    });
+    const request: CorrectionRequest = {
+      kind: "REVERSING",
+      transactionId: transaction.id,
+      reason,
+      note,
+    };
+    const body = JSON.stringify(request);
+    if (submission.current?.request !== body) {
+      submission.current = { request: body, key: crypto.randomUUID() };
+    }
+    correction.mutate({ request, idempotencyKey: submission.current.key });
   }
 
   return (
