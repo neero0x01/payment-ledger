@@ -14,11 +14,14 @@ import com.paymentledger.ledger.shared.Money;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.UUID;
+import org.jspecify.annotations.Nullable;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.web.servlet.client.RestTestClient;
@@ -32,11 +35,12 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>The context has its own Postgres and Kafka, closed after the class, so the figures count only
  * this class's Payments. Its clock can be moved forward, past every real Payment's minute. The
- * balanced check runs every second instead of every minute.
+ * balanced check runs every second instead of every minute, and a Faster Payment the fake scheme
+ * never answers is a Stuck Payment after 2 s instead of 5 min.
  */
 @SpringBootTest(
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "ledger.balanced-check.interval=PT1S")
+    properties = {"ledger.balanced-check.interval=PT1S", "ledger.scheme.stuck-after=PT2S"})
 @AutoConfigureRestTestClient
 @Import({
   DedicatedContainersConfiguration.class,
@@ -44,7 +48,8 @@ import tools.jackson.databind.json.JsonMapper;
   MutableClock.Configuration.class,
   LedgerFixture.class,
   Sessions.class,
-  PaymentStatusChangedProducer.class
+  PaymentStatusChangedProducer.class,
+  FakePaymentScheme.class
 })
 @DirtiesContext
 class DashboardTest {
@@ -135,6 +140,56 @@ class DashboardTest {
     assertThat(dashboard.get("outboxLag").get("oldestAgeSeconds").asDouble()).isZero();
     assertThat(dashboard.get("balancedCheck").get("balanced").asBoolean()).isTrue();
     assertThat(dashboard.get("balancedCheck").get("imbalancePence").asLong()).isZero();
+  }
+
+  @Test
+  void dashboard_lists_stuck_payments() {
+    AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    RestTestClient customer = sessions.customerOwning(a);
+    RestTestClient operator = sessions.operator();
+    Instant before = Instant.now();
+    String paymentId =
+        JSON.readTree(
+                customer
+                    .post()
+                    .uri("/v1/payments")
+                    .header("Idempotency-Key", UUID.randomUUID().toString())
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(
+                        """
+                        {"debtorAccountId": "%s",
+                         "payee": {"sortCode": "040004", "accountNumber": "12345678",
+                                   "name": "Jane Doe"},
+                         "amountPence": 4000}
+                        """
+                            .formatted(a.value()))
+                    .exchange()
+                    .expectStatus()
+                    .isEqualTo(HttpStatus.CREATED)
+                    .expectBody(String.class)
+                    .returnResult()
+                    .getResponseBody())
+            .get("id")
+            .asString();
+
+    JsonNode stuck =
+        await()
+            .atMost(PROJECTION)
+            .until(() -> stuckPayment(dashboard(operator), paymentId), payment -> payment != null);
+    assertThat(stuck.get("debtorAccountId").asString()).isEqualTo(a.value().toString());
+    assertThat(stuck.get("amountPence").asLong()).isEqualTo(40_00);
+    assertThat(stuck.get("payeeName").asString()).isEqualTo("Jane Doe");
+    assertThat(Instant.parse(stuck.get("madeAt").asString()))
+        .isBetween(before.minusSeconds(5), Instant.now());
+  }
+
+  private static @Nullable JsonNode stuckPayment(JsonNode dashboard, String paymentId) {
+    for (JsonNode payment : dashboard.path("stuckPayments")) {
+      if (payment.get("paymentId").asString().equals(paymentId)) {
+        return payment;
+      }
+    }
+    return null;
   }
 
   private static JsonNode dashboard(RestTestClient operator) {
