@@ -14,7 +14,7 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useId, useRef, useState } from "react";
 import {
   accountsQuery,
   makePayment,
@@ -54,6 +54,11 @@ export function NewPaymentScreen() {
   const customerAccounts =
     accounts.data?.filter((a) => a.kind === "CUSTOMER") ?? [];
   const [form, setForm] = useState(EMPTY_FORM);
+  // One Idempotency-Key per submission of the form as it stands: a double-click, or paying again
+  // after a lost response, resends it and gets the same Payment back. Editing the form starts a new
+  // submission.
+  const idempotencyKey = useRef<string | null>(null);
+  const sending = useRef(false);
   const payment = useMutation({
     mutationFn: ({
       request,
@@ -64,18 +69,25 @@ export function NewPaymentScreen() {
     }) => makePayment(request, idempotencyKey),
     onSuccess: (made) =>
       queryClient.setQueryData(paymentQuery(made.id).queryKey, made),
+    onSettled: () => {
+      sending.current = false;
+    },
   });
 
   const field = (name: keyof Form) => ({
     value: form[name],
-    onChange: (e: { target: { value: string } }) =>
-      setForm((prev) => ({ ...prev, [name]: e.target.value })),
+    onChange: (e: { target: { value: string } }) => {
+      idempotencyKey.current = null;
+      setForm((prev) => ({ ...prev, [name]: e.target.value }));
+    },
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
     const amountPence = parsePounds(form.amount);
-    if (amountPence === undefined) return;
+    if (amountPence === undefined || sending.current) return;
+    sending.current = true;
+    idempotencyKey.current ??= crypto.randomUUID();
     payment.mutate({
       request: {
         debtorAccountId: form.from,
@@ -89,7 +101,7 @@ export function NewPaymentScreen() {
               },
         amountPence,
       },
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: idempotencyKey.current,
     });
   }
 
