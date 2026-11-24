@@ -7,6 +7,8 @@ COPY .mvn .mvn
 COPY ledger/pom.xml ledger/pom.xml
 # The ledger's tests run the projector, so the reactor needs it too.
 COPY projector/pom.xml projector/pom.xml
+# The reactor lists the seed generator too.
+COPY seed/pom.xml seed/pom.xml
 RUN ./mvnw -B -ntp -pl ledger -am dependency:go-offline
 COPY projector/src projector/src
 COPY ledger/src ledger/src
@@ -14,6 +16,6 @@ RUN ./mvnw -B -ntp -pl ledger -am package -DskipTests -Dspotless.check.skip=true
 
 FROM eclipse-temurin:25-jre
 WORKDIR /app
-COPY --from=build /src/ledger/target/ledger-*.jar ledger.jar
+COPY --from=build /src/ledger/target/ledger-*-exec.jar ledger.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-jar", "/app/ledger.jar"]

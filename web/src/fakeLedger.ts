@@ -23,6 +23,8 @@ export type FakeEntry = {
   side: "DEBIT" | "CREDIT";
   amountPence: number;
   counterpartyAccountId?: string | null;
+  /** The Transaction the Entry belongs to; by default each seeded Entry gets one of its own. */
+  transactionId?: string;
 };
 
 type BookedEntry = FakeEntry & {
@@ -61,16 +63,29 @@ export function funded(
     }));
 }
 
+/** A request the fake hands, once logged in, to the routes a test adds. */
+export type FakeRequest = {
+  method: string;
+  path: string;
+  headers: Headers;
+  body: unknown;
+};
+
 export function installFakeLedger({
   accounts,
   entries = [],
   trailing = false,
   credentials = { username: "local-customer", password: "local-customer" },
+  role = "CUSTOMER",
+  routes,
 }: {
   accounts: FakeAccount[];
   entries?: FakeEntry[];
   trailing?: boolean;
   credentials?: { username: string; password: string };
+  role?: "CUSTOMER" | "OPERATOR";
+  /** More of the API, answered before the fake's own routes; undefined falls through to them. */
+  routes?: (request: FakeRequest) => Response | undefined;
 }) {
   const requests: {
     method: string;
@@ -109,7 +124,9 @@ export function installFakeLedger({
   function project() {
     projected = booked.length;
   }
-  for (const entry of entries) book(entry, nextTransactionId());
+  for (const entry of entries) {
+    book(entry, entry.transactionId ?? nextTransactionId());
+  }
   project();
 
   const balanceOf = (accountId: string, of: BookedEntry[]) =>
@@ -290,8 +307,10 @@ export function installFakeLedger({
     }
     if (!loggedIn) return problem(401);
 
+    const routed = routes?.({ method, path, headers, body });
+    if (routed) return routed;
     if (method === "GET" && path === "/v1/session") {
-      return json(200, { role: "CUSTOMER" });
+      return json(200, { role });
     }
     if (method === "GET" && path === "/v1/accounts") {
       return json(200, accounts.map(accountView));

@@ -69,7 +69,19 @@ class ReversingCorrectionTest {
     TransactionView correction = postReversingCorrection(mistake);
 
     assertThat(correction.reversesTransactionId()).isEqualTo(mistake);
-    assertThat(transaction(mistake)).isEqualTo(before);
+    assertThat(transaction(mistake))
+        .usingRecursiveComparison()
+        .ignoringFields("reversedByTransactionId")
+        .isEqualTo(before);
+  }
+
+  @Test
+  void reversed_transaction_names_the_reversing_correction_that_reversed_it() {
+    assertThat(transaction(mistake).reversedByTransactionId()).isNull();
+
+    TransactionView correction = postReversingCorrection(mistake);
+
+    assertThat(transaction(mistake).reversedByTransactionId()).isEqualTo(correction.id());
   }
 
   @Test
@@ -288,7 +300,8 @@ class ReversingCorrectionTest {
       @Nullable UUID reversesTransactionId,
       @Nullable String correctionReason,
       @Nullable String correctionNote,
-      List<EntryView> entries) {}
+      List<EntryView> entries,
+      @Nullable UUID reversedByTransactionId) {}
 
   record EntryView(UUID accountId, String side, long amountPence) {}
 
