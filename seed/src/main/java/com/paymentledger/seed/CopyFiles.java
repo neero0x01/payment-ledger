@@ -118,7 +118,8 @@ public final class CopyFiles implements SeedSink, AutoCloseable {
     }
     String text = value instanceof Instant instant ? instant.toString() : value.toString();
     StringBuilder escaped = new StringBuilder(text.length());
-    for (char c : text.toCharArray()) {
+    for (int i = 0; i < text.length(); i++) {
+      char c = text.charAt(i);
       switch (c) {
         case '\\' -> escaped.append("\\\\");
         case '\t' -> escaped.append("\\t");

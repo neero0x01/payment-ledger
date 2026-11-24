@@ -22,6 +22,8 @@ enum SeedTable {
           "created_at"));
 
   private final String table;
+
+  @SuppressWarnings("ImmutableEnumChecker") // List.of makes an unmodifiable list.
   private final List<String> columns;
 
   SeedTable(String table, List<String> columns) {

@@ -42,7 +42,6 @@ class SeedTransactionsTest {
 
   private static CollectedSeed seed;
   private static Map<AccountId, Account> accounts;
-  private static Map<PaymentId, SeededPayment> payments;
 
   @BeforeAll
   static void generate() {
@@ -51,9 +50,6 @@ class SeedTransactionsTest {
         seed.accounts.stream()
             .map(SeededAccount::account)
             .collect(Collectors.toMap(Account::id, Function.identity()));
-    payments =
-        seed.payments.stream()
-            .collect(Collectors.toMap(p -> p.payment().id(), Function.identity()));
   }
 
   @Test
