@@ -1,4 +1,4 @@
-# Local stack: Postgres, Kafka, the ledger, the projector and the bare transfer page.
+# Local stack: Postgres, Kafka, the ledger, the projector, the FPS simulator and the bare transfer page.
 services:
   postgres:
     image: postgres:18
@@ -10,7 +10,8 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
-      # Creates the readmodel database on first start (an existing postgres-data volume skips it).
+      # Creates the readmodel and fpssim databases on first start (an existing postgres-data volume
+      # skips it).
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
@@ -62,6 +63,8 @@ services:
       LEDGER_DB_PASSWORD: ledger
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       READMODEL_DB_URL: jdbc:postgresql://postgres:5432/readmodel
+      SCHEME_BASE_URL: http://fps-simulator:8081
+      SCHEME_CALLBACK_HMAC_KEY: local-dev-only-scheme-callback-key
     ports:
       - "8080:8080"
     # The ledger stops at startup if it can't create its topics (spring.kafka.admin.fail-fast).
@@ -88,6 +91,28 @@ services:
       postgres:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+
+  fps-simulator:
+    # Stands in for the Faster Payments Scheme (ADR 0008). Change its accept/reject rate, black-hole
+    # rate and latency while it runs with PUT http://localhost:8081/admin/settings.
+    build:
+      context: ..
+      dockerfile: fps-simulator/Dockerfile
+    environment:
+      FPSSIM_DB_URL: jdbc:postgresql://postgres:5432/fpssim
+      FPSSIM_DB_USER: ledger
+      FPSSIM_DB_PASSWORD: ledger
+      FPSSIM_LEDGER_BASE_URL: http://ledger:8080
+      FPSSIM_CALLBACK_HMAC_KEY: local-dev-only-scheme-callback-key
+      FPSSIM_ACCEPT_RATE: "0.95"
+      FPSSIM_BLACK_HOLE_RATE: "0"
+      FPSSIM_LATENCY_P50_MS: "200"
+      FPSSIM_LATENCY_P99_MS: "2000"
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres:
         condition: service_healthy
 
   web:

@@ -21,6 +21,7 @@
     <module>projector</module>
     <module>ledger</module>
     <module>seed</module>
+    <module>fps-simulator</module>
   </modules>
 
   <properties>

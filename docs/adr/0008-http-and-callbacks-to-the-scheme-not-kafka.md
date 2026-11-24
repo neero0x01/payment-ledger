@@ -1,4 +1,10 @@
+---
+status: accepted
+---
+
 # The ledger talks to the payment scheme over HTTP with signed callbacks, not Kafka
+
+**Status: Accepted** in M5. The ledger's `PaymentScheme` HTTP adapter posts each Scheme Submission to the `fps-simulator` service, which answers `202`, dedupes on End-to-End Id against its own `fpssim` database and later sends an HMAC-SHA256-signed Scheme Outcome to `POST /v1/scheme/callbacks`. The end-to-end test runs the ledger against the real simulator container: an accepted Faster Payment is Completed, and one to a Payee account ending `0401` is Rejected with `AC04` and reversed.
 
 Faster Payments go to the simulator as a slimmed-down ISO 20022 pacs.008 over HTTP. The simulator returns `202` and later calls back with a pacs.002 (`ACSC`, or `RJCT` with a reason code), signed with HMAC.
 
