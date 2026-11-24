@@ -12,27 +12,29 @@ import {
 } from "@mui/material";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
-import dayjs from "dayjs";
 import { accountQuery } from "./ledgerApi";
 import { formatPence } from "./money";
 import { RouterLink } from "./RouterLink";
 import {
+  type CorrectionReason,
   type Transaction,
-  type TransactionKind,
   transactionQuery,
 } from "./transactionApi";
+import {
+  formatBookingTime,
+  TRANSACTION_KIND,
+  TransactionLink,
+} from "./TransactionLink";
 
 const route = getRouteApi("/transactions/$transactionId");
 
-export const TRANSACTION_KIND: Record<TransactionKind, string> = {
-  PAYMENT: "Payment",
-  REVERSAL: "Reversal",
-  FUNDING: "Funding",
-  CORRECTION: "Correction",
+export const CORRECTION_REASON: Record<CorrectionReason, string> = {
+  DUPLICATE_POSTING: "Duplicate Posting",
+  WRONG_AMOUNT: "Wrong Amount",
+  WRONG_ACCOUNT: "Wrong Account",
+  GOODWILL: "Goodwill",
+  OTHER: "Other",
 };
-
-export const formatBookingTime = (bookingTime: string) =>
-  dayjs(bookingTime).format("D MMM YYYY, HH:mm");
 
 /** One Transaction as the ledger recorded it, for an Operator to investigate and correct. */
 export function TransactionScreen() {
@@ -62,6 +64,28 @@ export function TransactionScreen() {
             >
               Payment
             </RouterLink>
+          </Typography>
+        )}
+        {t.reversesTransactionId && (
+          <Typography>
+            Reverses <TransactionLink transactionId={t.reversesTransactionId} />
+          </Typography>
+        )}
+        {t.reversedByTransactionId && (
+          <Typography>
+            Reversed by{" "}
+            <TransactionLink transactionId={t.reversedByTransactionId} />
+          </Typography>
+        )}
+        {t.correctionReason && (
+          <Typography>
+            Correction Reason:{" "}
+            <span>{CORRECTION_REASON[t.correctionReason]}</span>
+          </Typography>
+        )}
+        {t.correctionNote && (
+          <Typography>
+            Note: <span>{t.correctionNote}</span>
           </Typography>
         )}
       </Stack>

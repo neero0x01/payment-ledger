@@ -2,9 +2,8 @@ import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { formatPence } from "./money";
-import { RouterLink } from "./RouterLink";
-import { paymentQuery, transactionQuery } from "./transactionApi";
-import { formatBookingTime, TRANSACTION_KIND } from "./TransactionScreen";
+import { paymentQuery } from "./transactionApi";
+import { TransactionLink } from "./TransactionLink";
 
 const route = getRouteApi("/payments/$paymentId");
 
@@ -50,19 +49,5 @@ export function PaymentScreen() {
         ))}
       </List>
     </Stack>
-  );
-}
-
-/** A link to a Transaction, named by its kind and Booking Time once they are known. */
-export function TransactionLink({ transactionId }: { transactionId: string }) {
-  const transaction = useQuery(transactionQuery(transactionId));
-  return (
-    <RouterLink to="/transactions/$transactionId" params={{ transactionId }}>
-      {transaction.data
-        ? `${TRANSACTION_KIND[transaction.data.kind]}, ${formatBookingTime(
-            transaction.data.bookingTime,
-          )}`
-        : transactionId}
-    </RouterLink>
   );
 }
