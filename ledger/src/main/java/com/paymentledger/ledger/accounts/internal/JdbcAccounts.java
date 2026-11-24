@@ -36,6 +36,20 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public CustomerId registerDemoCustomer(String displayName) {
+    UUID id =
+        jdbc.sql(
+                """
+                insert into customer (display_name, demo) values (:displayName, true)
+                returning id
+                """)
+            .param("displayName", displayName)
+            .query(UUID.class)
+            .single();
+    return new CustomerId(id);
+  }
+
+  @Override
   public AccountId openCustomerAccount(CustomerId owner, String name, Money overdraftLimit) {
     UUID id =
         jdbc.sql(
@@ -103,6 +117,19 @@ class JdbcAccounts implements Accounts {
         .param("id", id.value())
         .query(JdbcAccounts::account)
         .optional();
+  }
+
+  @Override
+  public boolean isInDemoSandbox(AccountId id) {
+    return jdbc.sql(
+            """
+            select exists (
+                select from account a join customer c on c.id = a.customer_id
+                where a.id = :id and c.demo)
+            """)
+        .param("id", id.value())
+        .query(Boolean.class)
+        .single();
   }
 
   @Override

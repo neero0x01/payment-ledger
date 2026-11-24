@@ -12,6 +12,9 @@ public interface Accounts {
 
   CustomerId registerCustomer(String displayName);
 
+  /** Registers the Customer of a new Demo Sandbox, for one visitor to the public demo. */
+  CustomerId registerDemoCustomer(String displayName);
+
   /** Opens a credit-normal Customer Account with a zero Balance and the given Overdraft Limit. */
   AccountId openCustomerAccount(CustomerId owner, String name, Money overdraftLimit);
 
@@ -28,6 +31,9 @@ public interface Accounts {
   AccountId fpsClearing();
 
   Optional<Account> find(AccountId id);
+
+  /** Whether the Account is a Customer Account in a Demo Sandbox. */
+  boolean isInDemoSandbox(AccountId id);
 
   /**
    * The Accounts the Principal may see, oldest first: a Customer's own Customer Accounts, or every

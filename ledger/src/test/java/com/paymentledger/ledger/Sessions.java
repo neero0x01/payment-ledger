@@ -60,12 +60,21 @@ public class Sessions {
             .isNoContent()
             .returnResult();
     String session = cookie(login, SESSION_COOKIE);
-    String token = cookie(login, CSRF_COOKIE);
+    return withSession(session, cookie(login, CSRF_COOKIE));
+  }
+
+  /** A client with no session. */
+  public RestTestClient anonymous() {
+    return http.getObject();
+  }
+
+  /** A client that sends the session cookie and the CSRF token, cookie to header. */
+  public RestTestClient withSession(String session, String csrf) {
     return http.getObject()
         .mutate()
         .defaultCookie(SESSION_COOKIE, session)
-        .defaultCookie(CSRF_COOKIE, token)
-        .defaultHeader(CSRF_HEADER, token)
+        .defaultCookie(CSRF_COOKIE, csrf)
+        .defaultHeader(CSRF_HEADER, csrf)
         .build();
   }
 

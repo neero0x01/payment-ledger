@@ -110,12 +110,14 @@ class PaymentRepository {
   }
 
   /**
-   * Claims up to the limit of Pending Faster Payments that have never been submitted, oldest first,
-   * counting a Scheme Submission for each, and returns what to submit. A Payment whose last Scheme
-   * Submission failed is claimed again once the retry delay has passed since it was sent. Rows
-   * another dispatcher has locked are skipped.
+   * Claims up to the limit of Pending Faster Payments due a Scheme Submission, oldest first,
+   * counting a Scheme Submission for each, and returns what to submit. A Payment is due when it has
+   * never been submitted, when its last Scheme Submission failed and the retry delay has passed, or
+   * when its last one was sent but no Scheme Outcome came within the resend delay. A Stuck Payment
+   * is no longer sent: it waits for an Operator. Rows another dispatcher has locked are skipped.
    */
-  List<SchemeSubmission> claimUnsubmittedFasterPayments(int limit, Duration retryDelay) {
+  List<SchemeSubmission> claimFasterPaymentsToSubmit(
+      int limit, Duration retryDelay, Duration resendAfter) {
     return jdbc.sql(
             """
             update payment
@@ -124,9 +126,14 @@ class PaymentRepository {
             where id in (
                 select id
                 from payment
-                where type = 'FASTER_PAYMENT' and status = 'PENDING' and submission_attempts = 0
+                where type = 'FASTER_PAYMENT' and status = 'PENDING' and not stuck
                   and (last_submitted_at is null
-                       or last_submitted_at < clock_timestamp() - make_interval(secs => :retryDelay))
+                       or (submission_attempts = 0
+                           and last_submitted_at
+                               < clock_timestamp() - make_interval(secs => :retryDelay))
+                       or (submission_attempts > 0
+                           and last_submitted_at
+                               < clock_timestamp() - make_interval(secs => :resendAfter)))
                 order by created_at
                 limit :limit
                 for update skip locked)
@@ -135,6 +142,7 @@ class PaymentRepository {
             """)
         .param("limit", limit)
         .param("retryDelay", retryDelay.toMillis() / 1000.0)
+        .param("resendAfter", resendAfter.toMillis() / 1000.0)
         .query((rs, rowNum) ->
             new SchemeSubmission(
                 new EndToEndId(rs.getString("end_to_end_id")),
@@ -160,6 +168,36 @@ class PaymentRepository {
             """)
         .param("endToEndId", endToEndId.value())
         .update();
+  }
+
+  /**
+   * Flags as Stuck Payments the Pending Faster Payments made longer ago than the deadline, and
+   * returns their End-to-End Ids. They stay Pending: nothing is reversed.
+   */
+  List<EndToEndId> flagStuckPayments(Duration deadline) {
+    return jdbc.sql(
+            """
+            update payment
+            set stuck = true
+            where type = 'FASTER_PAYMENT' and status = 'PENDING' and not stuck
+              and created_at < clock_timestamp() - make_interval(secs => :deadline)
+            returning end_to_end_id
+            """)
+        .param("deadline", deadline.toMillis() / 1000.0)
+        .query((rs, rowNum) -> new EndToEndId(rs.getString("end_to_end_id")))
+        .list();
+  }
+
+  /** How many Faster Payments are Stuck Payments now. */
+  long countStuckPayments() {
+    return jdbc.sql(
+            """
+            select count(*)
+            from payment
+            where type = 'FASTER_PAYMENT' and status = 'PENDING' and stuck
+            """)
+        .query(Long.class)
+        .single();
   }
 
   /** Marks the Payment Completed and returns when it was. */
@@ -214,7 +252,7 @@ class PaymentRepository {
             """
             select id, type, status, debtor_account_id, payee_account_id, payee_sort_code,
                    payee_account_number, payee_name, amount_pence, rejection_reason,
-                   scheme_reason_code
+                   scheme_reason_code, stuck
             from payment
             where id = :id
             """)
@@ -232,7 +270,7 @@ class PaymentRepository {
             """
             select id, type, status, debtor_account_id, payee_account_id, payee_sort_code,
                    payee_account_number, payee_name, amount_pence, rejection_reason,
-                   scheme_reason_code
+                   scheme_reason_code, stuck
             from payment
             where end_to_end_id = :endToEndId
             for update
@@ -281,6 +319,7 @@ class PaymentRepository {
         payee,
         Money.ofPence(rs.getLong("amount_pence")),
         rejectionReason == null ? null : RejectionReason.valueOf(rejectionReason),
-        schemeReasonCode == null ? null : SchemeReasonCode.valueOf(schemeReasonCode));
+        schemeReasonCode == null ? null : SchemeReasonCode.valueOf(schemeReasonCode),
+        rs.getBoolean("stuck"));
   }
 }

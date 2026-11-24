@@ -14,6 +14,10 @@
   <name>ledger</name>
   <description>The double-entry ledger: a Spring Boot modular monolith</description>
 
+  <properties>
+    <springdoc.version>3.2.1</springdoc.version>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -38,6 +42,12 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <!-- The OpenAPI 3.1 document and Swagger UI at /docs (spec §7). -->
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+      <version>${springdoc.version}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
