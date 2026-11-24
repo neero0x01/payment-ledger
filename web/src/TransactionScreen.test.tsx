@@ -1,5 +1,5 @@
 import { screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { installFakeLedger } from "./fakeLedger";
 import {
   type FakePayment,
@@ -181,12 +181,8 @@ const correctionPosts = (ledger: ReturnType<typeof installLedger>) =>
     (r) => r.method === "POST" && r.url === "/v1/corrections",
   );
 
-test("an Operator posts a Reversing Correction of a Transaction", async () => {
-  const ledger = installLedger();
-  const user = userEvent.setup();
-  renderApp(`/transactions/${PAID_B.id}`);
-  await logIn(user);
-
+/** Fills in the Correction form for a Reversing Correction and submits it. */
+async function postReversingCorrection(user: UserEvent) {
   const form = await screen.findByRole("form", { name: "Correction" });
   await user.click(within(form).getByLabelText("Reversing Correction"));
   await user.selectOptions(
@@ -197,6 +193,16 @@ test("an Operator posts a Reversing Correction of a Transaction", async () => {
   await user.click(
     within(form).getByRole("button", { name: "Post Correction" }),
   );
+  return form;
+}
+
+test("an Operator posts a Reversing Correction of a Transaction", async () => {
+  const ledger = installLedger();
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  await postReversingCorrection(user);
 
   expect(
     await screen.findByRole("link", { name: /^Correction, / }),
@@ -210,4 +216,30 @@ test("an Operator posts a Reversing Correction of a Transaction", async () => {
   });
   expect(post?.headers.get("Idempotency-Key")).toBeTruthy();
   expect(post?.headers.get("X-XSRF-TOKEN")).toBe("csrf-after-login");
+});
+
+test("reversing an already-reversed Transaction says it is already reversed", async () => {
+  installLedger({ transactions: [PAID_B, REVERSAL] });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const form = await postReversingCorrection(user);
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "This Transaction has already been reversed, so it can't be reversed again.",
+  );
+});
+
+test("correcting a Transaction whose Payment is Pending says to wait for the scheme", async () => {
+  installLedger({ payments: [{ ...PAYMENT, status: "PENDING" }] });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const form = await postReversingCorrection(user);
+
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "This Transaction's Payment is still Pending. It can be corrected once the scheme has decided.",
+  );
 });
