@@ -2,29 +2,57 @@ import {
   Alert,
   Box,
   Button,
+  FormControl,
+  FormControlLabel,
+  FormLabel,
   Paper,
+  Radio,
+  RadioGroup,
   Stack,
   TextField,
   Typography,
 } from "@mui/material";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useState } from "react";
 import {
   accountsQuery,
   makePayment,
   type Payment,
   type PaymentRequest,
+  paymentQuery,
 } from "./ledgerApi";
 import { parsePounds } from "./money";
 
-/** A Customer makes an Internal Transfer and watches its Payment Status. */
+type PaymentType = Payment["type"];
+
+/** What the Customer has typed into the form. */
+type Form = {
+  type: PaymentType;
+  from: string;
+  to: string;
+  sortCode: string;
+  accountNumber: string;
+  name: string;
+  amount: string;
+};
+
+const EMPTY_FORM: Form = {
+  type: "INTERNAL_TRANSFER",
+  from: "",
+  to: "",
+  sortCode: "",
+  accountNumber: "",
+  name: "",
+  amount: "",
+};
+
+/** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
 export function NewPaymentScreen() {
+  const queryClient = useQueryClient();
   const accounts = useQuery(accountsQuery());
   const customerAccounts =
     accounts.data?.filter((a) => a.kind === "CUSTOMER") ?? [];
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
-  const [amount, setAmount] = useState("");
+  const [form, setForm] = useState(EMPTY_FORM);
   const payment = useMutation({
     mutationFn: ({
       request,
@@ -33,21 +61,45 @@ export function NewPaymentScreen() {
       request: PaymentRequest;
       idempotencyKey: string;
     }) => makePayment(request, idempotencyKey),
+    onSuccess: (made) =>
+      queryClient.setQueryData(paymentQuery(made.id).queryKey, made),
+  });
+
+  const field = (name: keyof Form) => ({
+    value: form[name],
+    onChange: (e: { target: { value: string } }) =>
+      setForm((prev) => ({ ...prev, [name]: e.target.value })),
   });
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    const amountPence = parsePounds(amount);
+    const amountPence = parsePounds(form.amount);
     if (amountPence === undefined) return;
     payment.mutate({
       request: {
-        debtorAccountId: from,
-        payee: { accountId: to },
+        debtorAccountId: form.from,
+        payee:
+          form.type === "INTERNAL_TRANSFER"
+            ? { accountId: form.to }
+            : {
+                sortCode: form.sortCode,
+                accountNumber: form.accountNumber,
+                name: form.name,
+              },
         amountPence,
       },
       idempotencyKey: crypto.randomUUID(),
     });
   }
+
+  const accountOptions = [
+    <option key="" value="" disabled />,
+    ...customerAccounts.map((a) => (
+      <option key={a.id} value={a.id}>
+        {a.name}
+      </option>
+    )),
+  ];
 
   return (
     <Stack spacing={3}>
@@ -56,38 +108,56 @@ export function NewPaymentScreen() {
       </Typography>
       <Paper component="form" onSubmit={submit} sx={{ p: 3 }}>
         <Stack spacing={2}>
+          <FormControl>
+            <FormLabel id="payment-type">Payment type</FormLabel>
+            <RadioGroup row aria-labelledby="payment-type" {...field("type")}>
+              <FormControlLabel
+                value="INTERNAL_TRANSFER"
+                control={<Radio />}
+                label="Internal Transfer"
+              />
+              <FormControlLabel
+                value="FASTER_PAYMENT"
+                control={<Radio />}
+                label="Faster Payment"
+              />
+            </RadioGroup>
+          </FormControl>
           <TextField
             select
             label="From"
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
+            {...field("from")}
             slotProps={{ select: { native: true } }}
           >
-            <option value="" disabled />
-            {customerAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
+            {accountOptions}
           </TextField>
-          <TextField
-            select
-            label="To"
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-            slotProps={{ select: { native: true } }}
-          >
-            <option value="" disabled />
-            {customerAccounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </TextField>
+          {form.type === "INTERNAL_TRANSFER" ? (
+            <TextField
+              select
+              label="To"
+              {...field("to")}
+              slotProps={{ select: { native: true } }}
+            >
+              {accountOptions}
+            </TextField>
+          ) : (
+            <>
+              <TextField
+                label="Sort code"
+                {...field("sortCode")}
+                slotProps={{ htmlInput: { inputMode: "numeric" } }}
+              />
+              <TextField
+                label="Account number"
+                {...field("accountNumber")}
+                slotProps={{ htmlInput: { inputMode: "numeric" } }}
+              />
+              <TextField label="Name" {...field("name")} />
+            </>
+          )}
           <TextField
             label="Amount (£)"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            {...field("amount")}
             slotProps={{ htmlInput: { inputMode: "decimal" } }}
           />
           {payment.isError && (
@@ -106,7 +176,7 @@ export function NewPaymentScreen() {
           </Box>
         </Stack>
       </Paper>
-      {payment.isSuccess && <PaymentStatus payment={payment.data} />}
+      {payment.isSuccess && <PaymentStatus paymentId={payment.data.id} />}
     </Stack>
   );
 }
@@ -117,14 +187,18 @@ const STATUS_LABEL: Record<Payment["status"], string> = {
   REJECTED: "Rejected",
 };
 
-function PaymentStatus({ payment }: { payment: Payment }) {
+/** The Payment's live Payment Status, polled until it is final. */
+function PaymentStatus({ paymentId }: { paymentId: string }) {
   const heading = useId();
+  const payment = useQuery(paymentQuery(paymentId));
   return (
     <Paper component="section" aria-labelledby={heading} sx={{ p: 3 }}>
       <Typography variant="h5" component="h2" id={heading}>
         Payment Status
       </Typography>
-      <Typography>{STATUS_LABEL[payment.status]}</Typography>
+      {payment.isSuccess && (
+        <Typography>{STATUS_LABEL[payment.data.status]}</Typography>
+      )}
     </Paper>
   );
 }

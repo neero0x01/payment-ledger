@@ -170,3 +170,12 @@ export const balanceQuery = (accountId: string, asAt?: string) =>
     // A past As-At Balance never changes; the Balance now is a live view.
     refetchInterval: asAt ? false : POLL_INTERVAL_MS,
   });
+
+/** A Payment as it stands now, polled while it is Pending; Completed and Rejected are final. */
+export const paymentQuery = (paymentId: string) =>
+  queryOptions({
+    queryKey: ["payments", paymentId],
+    queryFn: () => getJson<Payment>(`/v1/payments/${paymentId}`, "Payment"),
+    refetchInterval: (query) =>
+      query.state.data?.status === "PENDING" ? POLL_INTERVAL_MS : false,
+  });

@@ -73,9 +73,8 @@ test("a Faster Payment shows Pending until the scheme Completes it", async () =>
   const status = await paymentStatus();
   expect(await within(status).findByText("Pending")).toBeInTheDocument();
   expect(
-    ledger.requests.find(
-      (r) => r.method === "POST" && r.url === "/v1/payments",
-    )?.body,
+    ledger.requests.find((r) => r.method === "POST" && r.url === "/v1/payments")
+      ?.body,
   ).toEqual({
     debtorAccountId: ACCOUNT_A.id,
     payee: { sortCode: "123456", accountNumber: "12345678", name: "Jo Bloggs" },
