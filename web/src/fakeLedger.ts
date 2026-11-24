@@ -66,11 +66,14 @@ export function installFakeLedger({
   entries = [],
   trailing = false,
   credentials = { username: "local-customer", password: "local-customer" },
+  demoRateLimited = false,
 }: {
   accounts: FakeAccount[];
   entries?: FakeEntry[];
   trailing?: boolean;
   credentials?: { username: string; password: string };
+  /** Refuse every demo session as over the demo's limits, as the ledger does with a 429. */
+  demoRateLimited?: boolean;
 }) {
   const requests: {
     method: string;
@@ -87,6 +90,7 @@ export function installFakeLedger({
     { request: string; payment: FakePayment }
   >();
   let loggedIn = false;
+  let role: "CUSTOMER" | "OPERATOR" = "CUSTOMER";
   let csrfToken = "csrf-before-login";
 
   function book(entry: FakeEntry, transactionId: string) {
@@ -288,10 +292,37 @@ export function installFakeLedger({
       setCsrfCookie();
       return new Response(null, { status: 204 });
     }
+    // A demo session logs in as the Customer of a Demo Sandbox (the fake's Accounts) or as the
+    // demo Operator.
+    if (method === "POST" && path === "/v1/demo-sessions") {
+      if (demoRateLimited) {
+        return new Response(
+          JSON.stringify({
+            type: "/problems/rate-limited",
+            title: "Rate limited",
+            status: 429,
+            detail:
+              "One Demo Sandbox per visitor every 10 minutes; try again later",
+          }),
+          {
+            status: 429,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        );
+      }
+      loggedIn = true;
+      role = body.role;
+      return json(201, {
+        role,
+        customerId:
+          role === "CUSTOMER" ? "019a0000-0000-7000-8000-0000000000cc" : null,
+        accountIds: role === "CUSTOMER" ? accounts.map((a) => a.id) : [],
+      });
+    }
     if (!loggedIn) return problem(401);
 
     if (method === "GET" && path === "/v1/session") {
-      return json(200, { role: "CUSTOMER" });
+      return json(200, { role });
     }
     if (method === "GET" && path === "/v1/accounts") {
       return json(200, accounts.map(accountView));
