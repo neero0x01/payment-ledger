@@ -29,6 +29,7 @@ import {
   problemsFromLedger,
   validate,
 } from "./newPaymentForm";
+import { PAYMENT_STATUS, rejectionReason } from "./paymentStatus";
 
 /** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
 export function NewPaymentScreen() {
@@ -192,28 +193,12 @@ export function NewPaymentScreen() {
   );
 }
 
-const STATUS: Record<
-  Payment["status"],
-  { label: string; color: "warning" | "success" | "error" }
-> = {
-  PENDING: { label: "Pending", color: "warning" },
-  COMPLETED: { label: "Completed", color: "success" },
-  REJECTED: { label: "Rejected", color: "error" },
-};
-
-/** The Rejection Reason in the glossary's words, with the scheme's reason code if it gave one. */
-export function rejectionReason({
-  rejectionReason,
-  schemeReasonCode,
-}: Payment) {
-  if (rejectionReason === "INSUFFICIENT_FUNDS") return "Insufficient Funds";
-  if (rejectionReason === "SCHEME_REJECTED") {
-    return schemeReasonCode
-      ? `Scheme Rejected (${schemeReasonCode})`
-      : "Scheme Rejected";
-  }
-  return null;
-}
+const STATUS_COLOR: Record<Payment["status"], "warning" | "success" | "error"> =
+  {
+    PENDING: "warning",
+    COMPLETED: "success",
+    REJECTED: "error",
+  };
 
 /** The Payment's live Payment Status, polled until it is final. */
 function PaymentStatus({ paymentId }: { paymentId: string }) {
@@ -228,8 +213,8 @@ function PaymentStatus({ paymentId }: { paymentId: string }) {
         {payment.isSuccess && (
           <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
             <Chip
-              label={STATUS[payment.data.status].label}
-              color={STATUS[payment.data.status].color}
+              label={PAYMENT_STATUS[payment.data.status]}
+              color={STATUS_COLOR[payment.data.status]}
             />
             {payment.data.status === "REJECTED" && (
               <Typography>{rejectionReason(payment.data)}</Typography>

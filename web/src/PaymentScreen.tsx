@@ -2,7 +2,7 @@ import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { formatPence } from "./money";
-import { rejectionReason } from "./NewPaymentScreen";
+import { PAYMENT_STATUS, rejectionReason } from "./paymentStatus";
 import { paymentQuery } from "./transactionApi";
 import { TransactionLink } from "./TransactionLink";
 
@@ -11,12 +11,6 @@ const route = getRouteApi("/payments/$paymentId");
 const PAYMENT_TYPE = {
   INTERNAL_TRANSFER: "Internal Transfer",
   FASTER_PAYMENT: "Faster Payment",
-} as const;
-
-const PAYMENT_STATUS = {
-  PENDING: "Pending",
-  COMPLETED: "Completed",
-  REJECTED: "Rejected",
 } as const;
 
 /** One Payment as the ledger has it now, with the Transactions it led to. */
