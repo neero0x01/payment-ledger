@@ -21,7 +21,6 @@ import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -82,7 +81,8 @@ class CorrectionService {
         || mistake.filter(CorrectionService::isSeeded).isPresent()) {
       throw seedDataReadOnly();
     }
-    if (logins.isDemoOperator(operator) && !accounts.isInDemoSandbox(customerAccount)) {
+    if (logins.isDemoOperator(operator)
+        && !accounts.areInDemoSandboxesOnly(Set.of(customerAccount))) {
       throw outsideDemoSandboxes();
     }
     KeyedCorrection keyed =
@@ -125,7 +125,7 @@ class CorrectionService {
     if (isSeeded(mistake) || accounts.areSeededOnly(accountsOf(mistake))) {
       throw seedDataReadOnly();
     }
-    if (logins.isDemoOperator(operator) && !isOnDemoSandboxAccountsOnly(mistake)) {
+    if (logins.isDemoOperator(operator) && !accounts.areInDemoSandboxesOnly(accountsOf(mistake))) {
       throw outsideDemoSandboxes();
     }
     KeyedCorrection keyed =
@@ -169,21 +169,6 @@ class CorrectionService {
 
   private PostedTransaction find(TransactionId posted) {
     return posting.find(posted).orElseThrow();
-  }
-
-  /**
-   * Whether the Transaction touches at least one Demo Sandbox Account and no Customer Account
-   * outside the Demo Sandboxes. Internal Accounts, such as Funding, don't count.
-   */
-  private boolean isOnDemoSandboxAccountsOnly(PostedTransaction transaction) {
-    List<AccountId> customerAccounts =
-        transaction.entries().stream()
-            .map(Entry::account)
-            .distinct()
-            .filter(account -> accounts.find(account).map(Account::isCustomerAccount).orElse(false))
-            .toList();
-    return !customerAccounts.isEmpty()
-        && customerAccounts.stream().allMatch(accounts::isInDemoSandbox);
   }
 
   private static boolean isSeeded(PostedTransaction transaction) {

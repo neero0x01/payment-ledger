@@ -40,8 +40,11 @@ public interface Accounts {
    */
   boolean areSeededOnly(Collection<AccountId> accounts);
 
-  /** Whether the Account is a Customer Account in a Demo Sandbox. */
-  boolean isInDemoSandbox(AccountId id);
+  /**
+   * Whether the Accounts include a Customer Account and every Customer Account among them is in a
+   * Demo Sandbox. Internal Accounts, such as Funding, don't count.
+   */
+  boolean areInDemoSandboxesOnly(Collection<AccountId> accounts);
 
   /**
    * The Accounts the Principal may see, oldest first: a Customer's own Customer Accounts, or every

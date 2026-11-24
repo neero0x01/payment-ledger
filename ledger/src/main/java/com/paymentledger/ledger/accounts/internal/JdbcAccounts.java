@@ -134,14 +134,14 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
-  public boolean isInDemoSandbox(AccountId id) {
+  public boolean areInDemoSandboxesOnly(Collection<AccountId> accounts) {
     return jdbc.sql(
             """
-            select exists (
-                select from account a join customer c on c.id = a.customer_id
-                where a.id = :id and c.demo)
+            select coalesce(bool_and(c.demo), false)
+            from account a join customer c on c.id = a.customer_id
+            where a.id in (:ids)
             """)
-        .param("id", id.value())
+        .param("ids", accounts.stream().map(AccountId::value).toList())
         .query(Boolean.class)
         .single();
   }
