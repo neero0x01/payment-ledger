@@ -56,9 +56,10 @@ class DashboardController {
         figures.madeInMinute() / SECONDS_PER_MINUTE,
         new Outcomes(figures.completed(), figures.rejected()),
         rejectionReasons,
-        new OutboxLag((long) gauge("ledger.outbox.unpublished"), gauge("ledger.outbox.oldest.age")),
+        new OutboxLag(count("ledger.outbox.unpublished"), reading("ledger.outbox.oldest.age")),
+        reading(ProjectionFreshness.GAUGE),
         balancedCheck(),
-        (long) gauge("ledger.payments.stuck"),
+        count("ledger.payments.stuck"),
         stuckPayments.oldest(STUCK_PAYMENTS_LISTED).stream()
             .map(StuckPaymentResponse::of)
             .toList());
@@ -77,6 +78,18 @@ class DashboardController {
         Instant.ofEpochSecond(0, Math.round(lastRun * 1e9)));
   }
 
+  /** The gauge's reading now, or null when it has none, as when its database can't be read. */
+  private @Nullable Double reading(String name) {
+    double value = gauge(name);
+    return Double.isNaN(value) ? null : value;
+  }
+
+  /** {@link #reading} of a gauge that counts. */
+  private @Nullable Long count(String name) {
+    Double value = reading(name);
+    return value == null ? null : value.longValue();
+  }
+
   /** The gauge's value now, or NaN if nothing has registered it. */
   private double gauge(String name) {
     Gauge gauge = gauges.find(name).gauge();
@@ -85,15 +98,16 @@ class DashboardController {
 
   /**
    * The dashboard. rejectionReasons counts the Payments Rejected over the last hour by each {@link
-   * RejectionReason}.
+   * RejectionReason}. A gauge with no reading, as when its database can't be read, is null.
    */
   record DashboardResponse(
       double paymentsPerSecond,
       Outcomes outcomes,
       Map<String, Long> rejectionReasons,
       OutboxLag outboxLag,
+      @Nullable Double projectionFreshnessSeconds,
       BalancedCheck balancedCheck,
-      long stuckPaymentCount,
+      @Nullable Long stuckPaymentCount,
       List<StuckPaymentResponse> stuckPayments) {}
 
   /** A Stuck Payment: the payer's Account, the Payee, the amount and when it was made. */
@@ -119,7 +133,7 @@ class DashboardController {
   }
 
   /** How many events wait to be published to Kafka, and how long the oldest has waited. */
-  record OutboxLag(long unpublished, double oldestAgeSeconds) {}
+  record OutboxLag(@Nullable Long unpublished, @Nullable Double oldestAgeSeconds) {}
 
   /**
    * Whether the last balanced check found a Balanced Ledger, the drift it found, and when it

@@ -1,8 +1,11 @@
 package com.paymentledger.ledger.outbox.internal;
 
+import com.paymentledger.ledger.outbox.AppendedEvent;
 import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.outbox.OutboxEvent;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
@@ -38,6 +41,24 @@ class JdbcOutbox implements Outbox {
         .param("key", event.key())
         .param("payload", json.writeValueAsString(envelope))
         .update();
+  }
+
+  @Override
+  public List<AppendedEvent> newest(int limit) {
+    return jdbc.sql(
+            """
+            select event_id,
+                   greatest(extract(epoch from clock_timestamp() - created_at), 0) as age_seconds
+            from outbox
+            order by id desc
+            limit :limit
+            """)
+        .param("limit", limit)
+        .query((rs, rowNum) ->
+            new AppendedEvent(
+                rs.getObject("event_id", UUID.class),
+                Duration.ofNanos(Math.round(rs.getDouble("age_seconds") * 1e9))))
+        .list();
   }
 
   /** The shared event envelope (ADR 0006), sent as the Kafka message's value. */

@@ -13,6 +13,7 @@ import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
@@ -119,6 +120,18 @@ class JdbcReadModel implements ReadModelBalances {
               counterparty == null ? null : new AccountId(counterparty));
         })
         .list();
+  }
+
+  /** Those of the events the projector has applied to the Read Model. */
+  Set<UUID> applied(Collection<UUID> eventIds) {
+    if (eventIds.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(
+        jdbc.sql("select event_id from processed_event where event_id in (:eventIds)")
+            .param("eventIds", eventIds)
+            .query(UUID.class)
+            .list());
   }
 
   /**
