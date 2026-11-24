@@ -110,12 +110,14 @@ class PaymentRepository {
   }
 
   /**
-   * Claims up to the limit of Pending Faster Payments that have never been submitted, oldest first,
-   * counting a Scheme Submission for each, and returns what to submit. A Payment whose last Scheme
-   * Submission failed is claimed again once the retry delay has passed since it was sent. Rows
-   * another dispatcher has locked are skipped.
+   * Claims up to the limit of Pending Faster Payments due a Scheme Submission, oldest first,
+   * counting a Scheme Submission for each, and returns what to submit. A Payment is due when it has
+   * never been submitted, when its last Scheme Submission failed and the retry delay has passed, or
+   * when its last one was sent but no Scheme Outcome came within the resend delay. A Stuck Payment
+   * is no longer sent: it waits for an Operator. Rows another dispatcher has locked are skipped.
    */
-  List<SchemeSubmission> claimUnsubmittedFasterPayments(int limit, Duration retryDelay) {
+  List<SchemeSubmission> claimFasterPaymentsToSubmit(
+      int limit, Duration retryDelay, Duration resendAfter) {
     return jdbc.sql(
             """
             update payment
@@ -124,9 +126,14 @@ class PaymentRepository {
             where id in (
                 select id
                 from payment
-                where type = 'FASTER_PAYMENT' and status = 'PENDING' and submission_attempts = 0
+                where type = 'FASTER_PAYMENT' and status = 'PENDING' and not stuck
                   and (last_submitted_at is null
-                       or last_submitted_at < clock_timestamp() - make_interval(secs => :retryDelay))
+                       or (submission_attempts = 0
+                           and last_submitted_at
+                               < clock_timestamp() - make_interval(secs => :retryDelay))
+                       or (submission_attempts > 0
+                           and last_submitted_at
+                               < clock_timestamp() - make_interval(secs => :resendAfter)))
                 order by created_at
                 limit :limit
                 for update skip locked)
@@ -135,6 +142,7 @@ class PaymentRepository {
             """)
         .param("limit", limit)
         .param("retryDelay", retryDelay.toMillis() / 1000.0)
+        .param("resendAfter", resendAfter.toMillis() / 1000.0)
         .query((rs, rowNum) ->
             new SchemeSubmission(
                 new EndToEndId(rs.getString("end_to_end_id")),

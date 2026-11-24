@@ -66,6 +66,8 @@ ledger:
   scheme:
     # The Faster Payments Scheme simulator (ADR 0008).
     base-url: ${SCHEME_BASE_URL:http://localhost:8081}
+    # A Scheme Submission with no Scheme Outcome after this long is sent again (ADR 0008).
+    resend-after: PT15S
     # Signs every Scheme Outcome callback with HMAC-SHA256. Read from SSM in production (spec §10).
     callback-hmac-key: ${SCHEME_CALLBACK_HMAC_KEY:local-dev-only-scheme-callback-key}
 server:
