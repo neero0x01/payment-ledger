@@ -19,7 +19,7 @@ export type Session = { role: "CUSTOMER" | "OPERATOR" };
  * The CSRF token the ledger keeps in the XSRF-TOKEN cookie, sent back in a header on every POST.
  * Read on each request, because logging in replaces it.
  */
-function csrfHeader(): Record<string, string> {
+export function csrfHeader(): Record<string, string> {
   const token = document.cookie
     .split("; ")
     .find((cookie) => cookie.startsWith("XSRF-TOKEN="))
@@ -91,7 +91,7 @@ export type Account = {
   availableBalancePence: number;
 };
 
-async function getJson<T>(url: string, what: string): Promise<T> {
+export async function getJson<T>(url: string, what: string): Promise<T> {
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`${what} failed with ${response.status}`);
