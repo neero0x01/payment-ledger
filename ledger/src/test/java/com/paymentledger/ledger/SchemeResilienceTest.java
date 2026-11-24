@@ -107,6 +107,60 @@ class SchemeResilienceTest {
     assertThat(scheme.submissionsTo(payeeAccountNumber)).hasSize(sent);
   }
 
+  @Test
+  void duplicate_scheme_rejection_returns_200_and_posts_exactly_one_reversal() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+
+    callbacks.reject(endToEndId, "AC04").expectStatus().isOk();
+    callbacks.reject(endToEndId, "AC04").expectStatus().isOk();
+
+    PaymentView rejected = payment(pending.id());
+    assertThat(rejected.status()).isEqualTo("REJECTED");
+    // The Payment Transaction and one Reversal.
+    assertThat(rejected.transactionIds()).hasSize(2);
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+  }
+
+  @Test
+  void scheme_rejection_after_acceptance_is_ignored_and_counted_as_a_scheme_anomaly() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    callbacks.accept(endToEndId).expectStatus().isOk();
+    long anomaliesBefore = SchemeGauges.schemeAnomalies(operator);
+
+    callbacks.reject(endToEndId, "AC04").expectStatus().isOk();
+
+    PaymentView completed = payment(pending.id());
+    assertThat(completed.status()).isEqualTo("COMPLETED");
+    assertThat(completed.transactionIds()).isEqualTo(pending.transactionIds());
+    assertThat(balancePenceOf(a)).isEqualTo(60_00);
+    assertThat(SchemeGauges.schemeAnomalies(operator)).isEqualTo(anomaliesBefore + 1);
+  }
+
+  @Test
+  void repeated_acceptance_is_not_a_scheme_anomaly() {
+    makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    callbacks.accept(endToEndId).expectStatus().isOk();
+    long anomaliesBefore = SchemeGauges.schemeAnomalies(operator);
+
+    callbacks.accept(endToEndId).expectStatus().isOk();
+
+    assertThat(SchemeGauges.schemeAnomalies(operator)).isEqualTo(anomaliesBefore);
+  }
+
+  @Test
+  void scheme_outcome_for_an_unknown_end_to_end_id_is_refused_with_404() {
+    callbacks
+        .accept(EndToEndId.random())
+        .expectStatus()
+        .isNotFound()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/not-found");
+  }
+
   PaymentView makeFasterPayment(long amountPence) {
     PaymentView payment =
         customer
