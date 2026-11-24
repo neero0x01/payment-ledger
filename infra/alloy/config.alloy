@@ -1,0 +1,6 @@
+// Grafana Alloy on the box: the agent that ships metrics, traces and logs to Grafana Cloud
+// (spec §13). Its pipelines are added here with the Grafana Cloud credentials.
+logging {
+	level  = "info"
+	format = "logfmt"
+}
