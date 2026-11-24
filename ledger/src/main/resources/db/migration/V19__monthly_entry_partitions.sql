@@ -54,6 +54,11 @@ create table entry (
 
 create index entry_transaction_idx on entry (transaction_id);
 
+-- The As-At Balance lookup: the newest Entry of an Account at or before a moment, read from the
+-- index alone, newest partition first, stopping at the first match.
+create index entry_account_as_at_idx
+    on entry (account_id, booked_at desc, entry_seq desc) include (balance_after_pence);
+
 select create_entry_partition(month::date)
 from generate_series(
          least(

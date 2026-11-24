@@ -1,5 +1,6 @@
 package com.paymentledger.ledger;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -8,12 +9,15 @@ import com.paymentledger.ledger.shared.Money;
 import java.time.Instant;
 import java.time.YearMonth;
 import java.time.ZoneOffset;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Entries are range-partitioned by month on Booking Time (ADR 0010). Flyway creates a partition for
@@ -28,6 +32,8 @@ class EntryPartitionsTest {
   static final Instant SEED_START = Instant.parse("2025-11-01T00:00:00Z");
 
   @Autowired LedgerFixture ledger;
+  @Autowired JdbcClient jdbc;
+  @Autowired TransactionTemplate transaction;
 
   AccountId a;
 
@@ -63,5 +69,41 @@ class EntryPartitionsTest {
         .isInstanceOf(DataAccessException.class)
         .rootCause()
         .hasMessageContaining("no partition of relation \"entry\" found");
+  }
+
+  /**
+   * The As-At Balance query, as JdbcPosting sends it, reads the newest Entry at or before the
+   * moment straight from the index, newest partition first, without a sort and without visiting the
+   * table. Sequential and bitmap scans are switched off because the test tables are too small for
+   * the planner to prefer an index otherwise.
+   */
+  @Test
+  void the_as_at_balance_query_is_an_ordered_index_only_scan() {
+    ledger.fundingBookedAt(a, Money.ofPence(1_00), SEED_START);
+
+    List<String> plan =
+        transaction.execute(status -> {
+          jdbc.sql("set local enable_seqscan = off").update();
+          jdbc.sql("set local enable_bitmapscan = off").update();
+          return jdbc.sql(
+                  """
+                  explain
+                  select balance_after_pence
+                  from entry
+                  where account_id = :accountId and booked_at <= :asAt
+                  order by booked_at desc, entry_seq desc
+                  limit 1
+                  """)
+              .param("accountId", a.value())
+              .param("asAt", Instant.now().atOffset(ZoneOffset.UTC))
+              .query(String.class)
+              .list();
+        });
+
+    assertThat(String.join("\n", plan))
+        .contains("Index Only Scan using entry_")
+        .doesNotContain("Sort")
+        .doesNotContain("Index Scan")
+        .doesNotContain("Seq Scan");
   }
 }
