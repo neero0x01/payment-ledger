@@ -82,6 +82,10 @@ export function installFakeLedger({
   let projected = 0;
   let transactions = 0;
   const payments: FakePayment[] = [];
+  const byIdempotencyKey = new Map<
+    string,
+    { request: string; payment: FakePayment }
+  >();
   let loggedIn = false;
   let csrfToken = "csrf-before-login";
 
@@ -312,7 +316,23 @@ export function installFakeLedger({
       return json(200, accountView(account));
     }
     if (method === "POST" && path === "/v1/payments") {
-      return json(201, makePayment(body));
+      // Like the ledger, a resent Idempotency-Key replays the Payment as it is now.
+      const key = headers.get("Idempotency-Key");
+      if (!key) return problem(400);
+      const made = byIdempotencyKey.get(key);
+      if (made) {
+        if (made.request !== JSON.stringify(body)) return problem(422);
+        return new Response(JSON.stringify(made.payment), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotent-Replayed": "true",
+          },
+        });
+      }
+      const payment = makePayment(body);
+      byIdempotencyKey.set(key, { request: JSON.stringify(body), payment });
+      return json(201, payment);
     }
     const [, paymentId] = path.match(/^\/v1\/payments\/([^/]+)$/) ?? [];
     const payment = payments.find((p) => p.id === paymentId);

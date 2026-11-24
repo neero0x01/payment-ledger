@@ -125,3 +125,87 @@ test("a Payment beyond the Available Balance shows Rejected for Insufficient Fun
   expect(await within(status).findByText("Rejected")).toBeInTheDocument();
   expect(within(status).getByText("Insufficient Funds")).toBeInTheDocument();
 });
+
+async function fillInternalTransfer(user: UserEvent, amount: string) {
+  await user.selectOptions(await screen.findByLabelText("From"), "Account A");
+  await user.selectOptions(screen.getByLabelText("To"), "Account B");
+  await user.clear(screen.getByLabelText("Amount (£)"));
+  await user.type(screen.getByLabelText("Amount (£)"), amount);
+}
+
+function idempotencyKeysSent(ledger: ReturnType<typeof installFakeLedger>) {
+  return ledger.requests
+    .filter((r) => r.method === "POST" && r.url === "/v1/payments")
+    .map((r) => r.headers.get("Idempotency-Key"));
+}
+
+test("a double-click on Pay never makes two Payments", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await fillInternalTransfer(user, "30.00");
+
+  await user.dblClick(screen.getByRole("button", { name: "Pay" }));
+
+  await within(await paymentStatus()).findByText("Completed");
+  expect(ledger.payments).toHaveLength(1);
+  expect(new Set(idempotencyKeysSent(ledger)).size).toBe(1);
+});
+
+test("paying again after a lost response resends the same Idempotency-Key", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  // The ledger makes the first Payment, but its response never arrives.
+  const ledgerFetch = globalThis.fetch;
+  let responsesLost = 0;
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await ledgerFetch(input, init);
+      if (init?.method === "POST" && input.toString() === "/v1/payments") {
+        if (responsesLost === 0) {
+          responsesLost += 1;
+          throw new TypeError("Failed to fetch");
+        }
+      }
+      return response;
+    },
+  );
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await fillInternalTransfer(user, "30.00");
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+  await screen.findByText(/The Payment failed/);
+
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+
+  await within(await paymentStatus()).findByText("Completed");
+  expect(ledger.payments).toHaveLength(1);
+  const keys = idempotencyKeysSent(ledger);
+  expect(keys).toHaveLength(2);
+  expect(keys[1]).toBe(keys[0]);
+});
+
+test("a new submission after a Payment is made gets a new Idempotency-Key", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await fillInternalTransfer(user, "30.00");
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+  await within(await paymentStatus()).findByText("Completed");
+
+  await fillInternalTransfer(user, "20.00");
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+
+  await waitFor(() => expect(ledger.payments).toHaveLength(2));
+  const keys = idempotencyKeysSent(ledger);
+  expect(keys[1]).not.toBe(keys[0]);
+});
