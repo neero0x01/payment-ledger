@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.payments.internal;
 
+import com.paymentledger.ledger.payments.EndToEndId;
 import com.paymentledger.ledger.payments.PaymentScheme;
 import com.paymentledger.ledger.payments.SchemeSubmission;
 import java.time.Duration;
@@ -17,7 +18,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * commands (ADR 0008). Each poll claims a batch in its own short database transaction, then calls
  * the PaymentScheme port outside any transaction. A Scheme Submission that fails gives its claim
  * back, so a poll after the retry delay sends it again. A Payment with no Scheme Outcome within the
- * resend delay (15 s) is sent again with the same End-to-End Id, which the scheme dedupes on.
+ * resend delay (15 s) is sent again with the same End-to-End Id, which the scheme dedupes on. One
+ * still Pending after the Scheme Outcome deadline (5 min) is flagged as a Stuck Payment for an
+ * Operator, and is never reversed automatically, because the money may already have left.
  */
 @Component
 class SchemeDispatcher {
@@ -32,20 +35,32 @@ class SchemeDispatcher {
   private final PaymentScheme scheme;
   private final TransactionTemplate transaction;
   private final Duration resendAfter;
+  private final Duration stuckAfter;
 
   SchemeDispatcher(
       PaymentRepository payments,
       PaymentScheme scheme,
       TransactionTemplate transaction,
-      @Value("${ledger.scheme.resend-after}") Duration resendAfter) {
+      @Value("${ledger.scheme.resend-after}") Duration resendAfter,
+      @Value("${ledger.scheme.stuck-after}") Duration stuckAfter) {
     this.payments = payments;
     this.scheme = scheme;
     this.transaction = transaction;
     this.resendAfter = resendAfter;
+    this.stuckAfter = stuckAfter;
   }
 
   @Scheduled(fixedDelayString = "${ledger.scheme.dispatch-interval-ms:200}")
   void dispatch() {
+    List<EndToEndId> stuck =
+        Objects.requireNonNull(
+            transaction.execute(status -> payments.flagStuckPayments(stuckAfter)));
+    for (EndToEndId endToEndId : stuck) {
+      log.warn(
+          "Faster Payment with End-to-End Id {} has had no Scheme Outcome for {}: Stuck Payment",
+          endToEndId.value(),
+          stuckAfter);
+    }
     List<SchemeSubmission> claimed =
         Objects.requireNonNull(
             transaction.execute(
