@@ -95,7 +95,7 @@ class CorrectionController {
         key,
         new AccountId(account),
         direction,
-        Problem.requirePositive(Money.ofPence(amountPence)),
+        Problem.requirePositive(Money.ofPence(amountPence), "amountPence"),
         details,
         Optional.ofNullable(request.transactionId()).map(TransactionId::new));
   }

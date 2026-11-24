@@ -27,6 +27,28 @@ const MAX_AMOUNT_PENCE = 1_000_000_00;
 
 export type FormProblems = Partial<Record<keyof NewPaymentForm, string>>;
 
+/** The form field for each Payment request field the ledger may name in a problem. */
+const FORM_FIELD: Record<string, keyof NewPaymentForm> = {
+  debtorAccountId: "from",
+  "payee.accountId": "to",
+  "payee.sortCode": "sortCode",
+  "payee.accountNumber": "accountNumber",
+  "payee.name": "name",
+  amountPence: "amount",
+};
+
+/**
+ * The ledger's problem placed beside the form field it names, or nothing when it names no field
+ * of this form.
+ */
+export function problemsFromLedger(
+  field: string | undefined,
+  detail: string,
+): FormProblems {
+  const formField = field === undefined ? undefined : FORM_FIELD[field];
+  return formField ? { [formField]: detail } : {};
+}
+
 /**
  * Checks the form the way the ledger will, so the Customer sees each problem beside its field
  * before anything is sent. Gives the Payment request when there are none.

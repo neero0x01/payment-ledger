@@ -256,7 +256,7 @@ All paths are under `/v1` (Spring Framework 7 API versioning). Errors are RFC 94
 | `POST /scheme/callbacks` | simulator (HMAC) | pacs.002-lite |
 | `POST /demo-sessions` | public | `{role: CUSTOMER / OPERATOR}`; rate-limited |
 
-Problem types include `validation-failed`, `idempotency-key-reused`, `idempotency-key-missing`, `already-reversed`, `payment-pending`, `seed-data-read-only`, `forbidden`, `not-found` and `rate-limited`.
+A problem about one request field names it in a `field` extension member, by its path in the JSON body (such as `amountPence` or `payee.sortCode`), so a client can show it beside that field. Problem types include `validation-failed`, `idempotency-key-reused`, `idempotency-key-missing`, `already-reversed`, `payment-pending`, `seed-data-read-only`, `forbidden`, `not-found` and `rate-limited`.
 
 ## 8. Auth and public demo
 

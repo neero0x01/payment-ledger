@@ -23,7 +23,12 @@ import {
   paymentQuery,
   ProblemError,
 } from "./ledgerApi";
-import { EMPTY_FORM, type NewPaymentForm, validate } from "./newPaymentForm";
+import {
+  EMPTY_FORM,
+  type NewPaymentForm,
+  problemsFromLedger,
+  validate,
+} from "./newPaymentForm";
 
 /** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
 export function NewPaymentScreen() {
@@ -55,14 +60,24 @@ export function NewPaymentScreen() {
     },
   });
 
+  // A problem the ledger refused the Payment with shows beside the field it names, until the form
+  // is edited; one that names no field of the form shows above Pay.
+  const refusal =
+    payment.error instanceof ProblemError ? payment.error : undefined;
+  const ledgerProblems = refusal
+    ? problemsFromLedger(refusal.field, refusal.detail)
+    : {};
+  const refusalBesideField = Object.keys(ledgerProblems).length > 0;
+
   const field = (name: keyof NewPaymentForm) => ({
     value: form[name],
     onChange: (e: { target: { value: string } }) => {
       idempotencyKey.current = null;
+      if (payment.isError) payment.reset();
       setForm((prev) => ({ ...prev, [name]: e.target.value }));
     },
-    error: problems[name] !== undefined,
-    helperText: problems[name],
+    error: (problems[name] ?? ledgerProblems[name]) !== undefined,
+    helperText: problems[name] ?? ledgerProblems[name],
   });
 
   function submit(event: FormEvent) {
@@ -154,10 +169,10 @@ export function NewPaymentScreen() {
             {...field("amount")}
             slotProps={{ htmlInput: { inputMode: "decimal" } }}
           />
-          {payment.isError && (
+          {payment.isError && !refusalBesideField && (
             <Alert severity="error">
-              {payment.error instanceof ProblemError
-                ? `The ledger refused the Payment: ${payment.error.detail}`
+              {refusal
+                ? `The ledger refused the Payment: ${refusal.detail}`
                 : `The Payment failed: ${payment.error.message}. Paying again resends the same Payment.`}
             </Alert>
           )}
