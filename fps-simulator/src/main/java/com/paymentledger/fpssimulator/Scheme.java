@@ -1,5 +1,6 @@
 package com.paymentledger.fpssimulator;
 
+import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -43,20 +44,27 @@ class Scheme implements DisposableBean {
 
   /** Takes the Scheme Submission; its Scheme Outcome, if any, goes to the ledger later. */
   void receive(Pacs008Lite submission) {
-    Decision decision = submissions.decideOnce(submission.endToEndId(), decide(submission));
+    SimulatorSettings now = settings.get();
+    Decision decision = submissions.decideOnce(submission.endToEndId(), decide(submission, now));
+    Duration latency = now.sampleLatency(ThreadLocalRandom.current());
     decision
         .outcome()
         .ifPresent(outcome ->
             outcomes.schedule(
-                () -> sendOutcome(submission.endToEndId(), outcome), 0, TimeUnit.MILLISECONDS));
+                () -> sendOutcome(submission.endToEndId(), outcome),
+                latency.toMillis(),
+                TimeUnit.MILLISECONDS));
   }
 
-  private Decision decide(Pacs008Lite submission) {
+  private static Decision decide(Pacs008Lite submission, SimulatorSettings settings) {
     if (submission.creditorAccountNumber().endsWith(CLOSED_ACCOUNT_SUFFIX)) {
       return Decision.send(SchemeOutcome.rejected(SchemeOutcome.ReasonCode.AC04));
     }
     ThreadLocalRandom random = ThreadLocalRandom.current();
-    if (random.nextDouble() < settings.get().acceptRate()) {
+    if (random.nextDouble() < settings.blackHoleRate()) {
+      return Decision.BLACK_HOLE;
+    }
+    if (random.nextDouble() < settings.acceptRate()) {
       return Decision.send(SchemeOutcome.ACCEPTED);
     }
     return Decision.send(

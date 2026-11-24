@@ -3,7 +3,10 @@ package com.paymentledger.fpssimulator;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
 import javax.crypto.Mac;
@@ -66,6 +69,80 @@ class SchemeSubmissionTest {
     LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
     assertThat(callback.status()).isEqualTo("RJCT");
     assertThat(callback.reasonCode()).isEqualTo("AC04");
+  }
+
+  @Test
+  void a_resent_submission_gets_its_stored_outcome_again() {
+    String endToEndId = newEndToEndId();
+    submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+    ledger.awaitCallbackFor(endToEndId);
+
+    // Were it decided afresh, it would now be rejected.
+    settings(0.0, 0.0, 0, 0);
+    submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+
+    List<LedgerStub.Callback> callbacks = ledger.awaitCallbacksFor(endToEndId, 2);
+    assertThat(callbacks).extracting(LedgerStub.Callback::status).containsExactly("ACSC", "ACSC");
+  }
+
+  @Test
+  void a_black_holed_submission_never_gets_an_outcome_even_when_resent()
+      throws InterruptedException {
+    settings(1.0, 1.0, 0, 0);
+    String endToEndId = newEndToEndId();
+    submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+
+    settings(1.0, 0.0, 0, 0);
+    submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+
+    Thread.sleep(1_000);
+    assertThat(ledger.callbacksFor(endToEndId)).isEmpty();
+  }
+
+  @Test
+  void the_outcome_waits_for_the_latency_set() {
+    settings(1.0, 0.0, 700, 700);
+    String endToEndId = newEndToEndId();
+    Instant submitted = Instant.now();
+
+    submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+
+    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    assertThat(Duration.between(submitted, callback.receivedAt()))
+        .isGreaterThanOrEqualTo(Duration.ofMillis(700));
+  }
+
+  @Test
+  void settings_outside_their_range_are_refused_as_a_problem() {
+    http.put()
+        .uri("/admin/settings")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"acceptRate": 1.5, "blackHoleRate": 0, "latencyP50Ms": 200, "latencyP99Ms": 100}
+            """)
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectHeader()
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON);
+  }
+
+  @Test
+  void a_submission_without_an_end_to_end_id_is_refused_as_a_problem() {
+    http.post()
+        .uri("/scheme/v1/submissions")
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"creditorSortCode": "040004", "creditorAccountNumber": "12345678",
+             "creditorName": "Jane Doe", "amountPence": 4000}
+            """)
+        .exchange()
+        .expectStatus()
+        .isBadRequest()
+        .expectHeader()
+        .contentType(MediaType.APPLICATION_PROBLEM_JSON);
   }
 
   RestTestClient.ResponseSpec submit(String endToEndId, String creditorAccountNumber) {

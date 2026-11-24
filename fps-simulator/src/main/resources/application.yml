@@ -5,6 +5,10 @@ spring:
     url: ${FPSSIM_DB_URL:jdbc:postgresql://localhost:5432/fpssim}
     username: ${FPSSIM_DB_USER:ledger}
     password: ${FPSSIM_DB_PASSWORD:ledger}
+  mvc:
+    problemdetails:
+      # Refused requests are answered as RFC 9457 problem details, as the ledger's are.
+      enabled: true
 server:
   port: ${FPSSIM_PORT:8081}
 fpssim:
