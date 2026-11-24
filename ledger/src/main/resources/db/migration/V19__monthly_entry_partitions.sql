@@ -14,6 +14,12 @@
 
 -- Creates the partition for the month that starts on the date given, unless it exists. It runs as
 -- the schema owner, which owns entry, so ledger_app can create partitions without owning tables.
+--
+-- Entries are insert-only, so only insert-driven autovacuum sets their pages all-visible, which
+-- the As-At index-only scan needs. The default vacuums after inserts of 20% of the partition's
+-- size, which lets a growing month's visibility map fall further behind the bigger it gets; each
+-- partition is vacuumed after every 10,000 inserts instead. Postgres can't set this on the
+-- partitioned table itself, so it is set on each partition.
 create function create_entry_partition(month date) returns void
 language plpgsql
 security definer
@@ -23,7 +29,8 @@ declare
     first_day date := date_trunc('month', month)::date;
 begin
     execute format(
-        'create table if not exists %I partition of entry for values from (%L) to (%L)',
+        'create table if not exists %I partition of entry for values from (%L) to (%L)
+         with (autovacuum_vacuum_insert_scale_factor = 0, autovacuum_vacuum_insert_threshold = 10000)',
         'entry_' || to_char(first_day, 'YYYY_MM'),
         first_day::timestamp at time zone 'UTC',
         (first_day + interval '1 month')::timestamp at time zone 'UTC');
