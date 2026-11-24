@@ -43,6 +43,7 @@ class TransactionController {
       @Nullable UUID reversesTransactionId,
       @Nullable String correctionReason,
       @Nullable String correctionNote,
+      String source,
       List<EntryResponse> entries,
       @Nullable UUID reversedByTransactionId) {
 
@@ -62,6 +63,7 @@ class TransactionController {
           transaction.reverses().map(TransactionId::value).orElse(null),
           correction.reason(),
           correction.note(),
+          transaction.source().name(),
           transaction.postedEntries().stream().map(EntryResponse::of).toList(),
           reversedBy.map(TransactionId::value).orElse(null));
     }
