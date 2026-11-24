@@ -1,6 +1,7 @@
 package com.paymentledger.ledger.views.internal;
 
 import com.paymentledger.ledger.outbox.AppendedEvent;
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.outbox.Outbox;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -8,7 +9,6 @@ import io.micrometer.core.instrument.binder.MeterBinder;
 import java.time.Duration;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import org.springframework.stereotype.Component;
 
 /**
@@ -42,7 +42,7 @@ class ProjectionFreshness implements MeterBinder {
 
   private Duration trailing() {
     List<AppendedEvent> newest = outbox.newest(EVENTS_CHECKED);
-    Set<UUID> applied = readModel.applied(newest.stream().map(AppendedEvent::eventId).toList());
+    Set<EventId> applied = readModel.applied(newest.stream().map(AppendedEvent::eventId).toList());
     return newest.stream()
         .filter(event -> !applied.contains(event.eventId()))
         .map(AppendedEvent::age)

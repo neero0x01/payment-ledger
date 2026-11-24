@@ -1,6 +1,7 @@
 package com.paymentledger.seed;
 
 import com.paymentledger.ledger.accounts.Account;
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedEntry;
@@ -69,7 +70,7 @@ final class SeedPosting {
             transaction.adjusts().orElse(null),
             TransactionSource.SEED,
             posted);
-    sink.transaction(postedTransaction, random.uuidV4());
+    sink.transaction(postedTransaction, new EventId(random.uuidV4()));
     return postedTransaction;
   }
 

@@ -1,5 +1,6 @@
 package com.paymentledger.ledger.views.internal;
 
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.ReadModelBalance;
 import com.paymentledger.ledger.posting.ReadModelBalances;
@@ -123,14 +124,14 @@ class JdbcReadModel implements ReadModelBalances {
   }
 
   /** Those of the events the projector has applied to the Read Model. */
-  Set<UUID> applied(Collection<UUID> eventIds) {
+  Set<EventId> applied(Collection<EventId> eventIds) {
     if (eventIds.isEmpty()) {
       return Set.of();
     }
     return Set.copyOf(
         jdbc.sql("select event_id from processed_event where event_id in (:eventIds)")
-            .param("eventIds", eventIds)
-            .query(UUID.class)
+            .param("eventIds", eventIds.stream().map(EventId::value).toList())
+            .query((rs, rowNum) -> new EventId(rs.getObject("event_id", UUID.class)))
             .list());
   }
 

@@ -1,5 +1,6 @@
 package com.paymentledger.seed;
 
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.shared.PaymentId;
@@ -23,7 +24,7 @@ final class TransactionPostedJson {
   private TransactionPostedJson() {}
 
   /** The event's JSON, announcing the Transaction under the eventId. */
-  static String of(PostedTransaction transaction, UUID eventId) {
+  static String of(PostedTransaction transaction, EventId eventId) {
     String bookingTime = transaction.bookingTime().toString();
     Payload payload =
         new Payload(
@@ -34,7 +35,7 @@ final class TransactionPostedJson {
             transaction.reverses().map(TransactionId::value).orElse(null),
             transaction.postedEntries().stream().map(EntryPayload::of).toList());
     return JSON.writeValueAsString(
-        new Envelope(eventId, "TransactionPosted", 1, bookingTime, payload));
+        new Envelope(eventId.value(), "TransactionPosted", 1, bookingTime, payload));
   }
 
   record Envelope(

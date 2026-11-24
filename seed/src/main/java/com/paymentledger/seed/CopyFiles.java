@@ -1,5 +1,6 @@
 package com.paymentledger.seed;
 
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.Payment;
 import com.paymentledger.ledger.payments.PaymentType;
@@ -20,7 +21,6 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -103,7 +103,7 @@ public final class CopyFiles implements SeedSink, AutoCloseable {
   }
 
   @Override
-  public void transaction(PostedTransaction transaction, UUID eventId) {
+  public void transaction(PostedTransaction transaction, EventId eventId) {
     CorrectionDetails correction = transaction.correction().orElse(null);
     row(
         SeedTable.LEDGER_TRANSACTION,
@@ -128,7 +128,7 @@ public final class CopyFiles implements SeedSink, AutoCloseable {
     }
     row(
         SeedTable.OUTBOX,
-        eventId,
+        eventId.value(),
         TransactionPostedJson.TOPIC,
         transaction.id().value(),
         TransactionPostedJson.of(transaction, eventId));

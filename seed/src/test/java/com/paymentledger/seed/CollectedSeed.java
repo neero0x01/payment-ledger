@@ -1,12 +1,12 @@
 package com.paymentledger.seed;
 
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.shared.AccountId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /** Keeps everything the generator makes, for tests that read the seed data back. */
 final class CollectedSeed implements SeedSink {
@@ -43,7 +43,7 @@ final class CollectedSeed implements SeedSink {
   }
 
   @Override
-  public void transaction(PostedTransaction transaction, UUID eventId) {
+  public void transaction(PostedTransaction transaction, EventId eventId) {
     transactions.add(transaction);
   }
 
