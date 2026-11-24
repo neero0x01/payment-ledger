@@ -8,6 +8,7 @@ import com.paymentledger.ledger.shared.PaymentId;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
@@ -29,7 +30,8 @@ class TransactionController {
   TransactionResponse transaction(@PathVariable UUID id) {
     return posting
         .find(new TransactionId(id))
-        .map(TransactionResponse::of)
+        .map(transaction ->
+            TransactionResponse.of(transaction, posting.reversalOf(transaction.id())))
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
   }
 
@@ -41,9 +43,16 @@ class TransactionController {
       @Nullable UUID reversesTransactionId,
       @Nullable String correctionReason,
       @Nullable String correctionNote,
-      List<EntryResponse> entries) {
+      List<EntryResponse> entries,
+      @Nullable UUID reversedByTransactionId) {
 
+    /** A Transaction just posted, which nothing has reversed yet. */
     static TransactionResponse of(PostedTransaction transaction) {
+      return of(transaction, Optional.empty());
+    }
+
+    static TransactionResponse of(
+        PostedTransaction transaction, Optional<TransactionId> reversedBy) {
       CorrectionFields correction = CorrectionFields.of(transaction.correction());
       return new TransactionResponse(
           transaction.id().value(),
@@ -53,7 +62,8 @@ class TransactionController {
           transaction.reverses().map(TransactionId::value).orElse(null),
           correction.reason(),
           correction.note(),
-          transaction.postedEntries().stream().map(EntryResponse::of).toList());
+          transaction.postedEntries().stream().map(EntryResponse::of).toList(),
+          reversedBy.map(TransactionId::value).orElse(null));
     }
   }
 
