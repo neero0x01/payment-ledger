@@ -106,4 +106,33 @@ class EntryPartitionsTest {
         .doesNotContain("Index Scan")
         .doesNotContain("Seq Scan");
   }
+
+  /**
+   * Entries are insert-only, so only insert-driven autovacuum ever sets their pages all-visible,
+   * which index-only scans need. Every partition is vacuumed after a fixed number of inserts rather
+   * than a fraction of its size, so a growing month's visibility map stays current.
+   */
+  @Test
+  void every_entry_partition_is_vacuumed_after_a_fixed_number_of_inserts() {
+    List<String> untuned =
+        jdbc.sql(
+                """
+                select c.relname
+                from pg_inherits i
+                join pg_class c on c.oid = i.inhrelid
+                where i.inhparent = 'entry'::regclass
+                  and not coalesce(c.reloptions, '{}') @> array[
+                      'autovacuum_vacuum_insert_scale_factor=0',
+                      'autovacuum_vacuum_insert_threshold=10000']
+                """)
+            .query(String.class)
+            .list();
+    long partitions =
+        jdbc.sql("select count(*) from pg_inherits where inhparent = 'entry'::regclass")
+            .query(Long.class)
+            .single();
+
+    assertThat(partitions).isPositive();
+    assertThat(untuned).isEmpty();
+  }
 }
