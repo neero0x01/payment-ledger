@@ -9,6 +9,8 @@ import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.payments.SchemeReasonCode;
 import com.paymentledger.ledger.payments.SchemeSubmission;
 import com.paymentledger.ledger.payments.StuckPayment;
+import com.paymentledger.ledger.payments.StuckPayments;
+import com.paymentledger.ledger.posting.PendingPayments;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
@@ -26,8 +28,12 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
+/**
+ * The Payments, by hand-written SQL (ADR 0001). It is also the payments module's adapter for the
+ * StuckPayments it shows Operators and the PendingPayments port that posting asks.
+ */
 @Repository
-class PaymentRepository {
+class PaymentRepository implements StuckPayments, PendingPayments {
 
   private final JdbcClient jdbc;
 
@@ -192,26 +198,18 @@ class PaymentRepository {
         .list();
   }
 
-  /** How many Faster Payments are Stuck Payments now. */
-  long countStuckPayments() {
-    return jdbc.sql(
-            """
-            select count(*)
-            from payment
-            where type = 'FASTER_PAYMENT' and status = 'PENDING' and stuck
-            """)
-        .query(Long.class)
-        .single();
+  @Override
+  public long count() {
+    return jdbc.sql("select count(*) from stuck_payment").query(Long.class).single();
   }
 
-  /** Up to the limit of the Stuck Payments, oldest first. */
-  List<StuckPayment> oldestStuckPayments(int limit) {
+  @Override
+  public List<StuckPayment> oldest(int limit) {
     return jdbc.sql(
             """
             select id, debtor_account_id, payee_sort_code, payee_account_number, payee_name,
                    amount_pence, created_at
-            from payment
-            where type = 'FASTER_PAYMENT' and status = 'PENDING' and stuck
+            from stuck_payment
             order by created_at
             limit :limit
             """)
@@ -227,6 +225,15 @@ class PaymentRepository {
                 Money.ofPence(rs.getLong("amount_pence")),
                 rs.getObject("created_at", OffsetDateTime.class).toInstant()))
         .list();
+  }
+
+  @Override
+  public boolean isPending(PaymentId payment) {
+    return jdbc.sql("select status = 'PENDING' from payment where id = :id")
+        .param("id", payment.value())
+        .query(Boolean.class)
+        .optional()
+        .orElse(false);
   }
 
   /** Marks the Payment Completed and returns when it was. */
