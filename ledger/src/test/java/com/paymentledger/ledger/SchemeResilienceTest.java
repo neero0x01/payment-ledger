@@ -161,6 +161,49 @@ class SchemeResilienceTest {
         .isEqualTo("/problems/not-found");
   }
 
+  @Test
+  void correction_of_a_transaction_whose_payment_is_pending_is_refused_as_payment_pending() {
+    PaymentView pending = makeFasterPayment(40_00);
+
+    reverse(pending.transactionIds().getFirst())
+        .expectStatus()
+        .isEqualTo(HttpStatus.CONFLICT)
+        .expectHeader()
+        .contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/payment-pending");
+
+    assertThat(payment(pending.id()).transactionIds()).hasSize(1);
+    assertThat(balancePenceOf(a)).isEqualTo(60_00);
+  }
+
+  @Test
+  void correction_of_a_transaction_whose_payment_has_completed_is_posted() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    callbacks.accept(endToEndId).expectStatus().isOk();
+
+    reverse(pending.transactionIds().getFirst()).expectStatus().isEqualTo(HttpStatus.CREATED);
+
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+  }
+
+  RestTestClient.ResponseSpec reverse(UUID transactionId) {
+    return operator
+        .post()
+        .uri("/v1/corrections")
+        .header("Idempotency-Key", UUID.randomUUID().toString())
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"kind": "REVERSING", "transactionId": "%s", "reason": "OTHER",
+             "note": "Customer says the payment never arrived"}
+            """
+                .formatted(transactionId))
+        .exchange();
+  }
+
   PaymentView makeFasterPayment(long amountPence) {
     PaymentView payment =
         customer
