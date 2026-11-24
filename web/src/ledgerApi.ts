@@ -64,6 +64,20 @@ export async function logIn(username: string, password: string) {
   }
 }
 
+/**
+ * Starts a public demo session, which logs the visitor in without a password: as the Customer of a
+ * new, funded Demo Sandbox, or as the demo Operator. Over the demo's limits it fails with a
+ * rate-limited problem.
+ */
+export async function startDemoSession(role: Session["role"]) {
+  const response = await fetch("/v1/demo-sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...csrfHeader() },
+    body: JSON.stringify({ role }),
+  });
+  if (!response.ok) throw await problemOf(response);
+}
+
 /** Makes a Payment. The Idempotency-Key belongs to one user submission, and every retry reuses it. */
 export async function makePayment(
   payment: PaymentRequest,

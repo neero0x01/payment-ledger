@@ -2,7 +2,9 @@ package com.paymentledger.ledger.posting.internal;
 
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
+import com.paymentledger.ledger.accounts.Logins;
 import com.paymentledger.ledger.posting.CorrectionDetails;
+import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.KeyedCorrection;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PendingPayments;
@@ -18,6 +20,7 @@ import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -35,11 +38,14 @@ class CorrectionService {
   private final Posting posting;
   private final Accounts accounts;
   private final PendingPayments pendingPayments;
+  private final Logins logins;
 
-  CorrectionService(Posting posting, Accounts accounts, PendingPayments pendingPayments) {
+  CorrectionService(
+      Posting posting, Accounts accounts, PendingPayments pendingPayments, Logins logins) {
     this.posting = posting;
     this.accounts = accounts;
     this.pendingPayments = pendingPayments;
+    this.logins = logins;
   }
 
   /**
@@ -62,6 +68,9 @@ class CorrectionService {
     if (!account.isCustomerAccount()) {
       throw Problem.validationFailed(
           "An Adjustment moves money between a Customer Account and the Corrections Account");
+    }
+    if (logins.isDemoOperator(operator) && !accounts.isInDemoSandbox(customerAccount)) {
+      throw outsideDemoSandboxes();
     }
     KeyedCorrection keyed =
         new KeyedCorrection(
@@ -101,6 +110,9 @@ class CorrectionService {
         posting
             .find(original)
             .orElseThrow(() -> Problem.notFound("No Transaction " + original.value() + " exists"));
+    if (logins.isDemoOperator(operator) && !isOnDemoSandboxAccountsOnly(mistake)) {
+      throw outsideDemoSandboxes();
+    }
     KeyedCorrection keyed =
         new KeyedCorrection(
             operator, key, requestHash(correction, "REVERSING", original.value().toString()));
@@ -131,6 +143,26 @@ class CorrectionService {
 
   private PostedTransaction find(TransactionId posted) {
     return posting.find(posted).orElseThrow();
+  }
+
+  /**
+   * Whether the Transaction touches at least one Demo Sandbox Account and no Customer Account
+   * outside the Demo Sandboxes. Internal Accounts, such as Funding, don't count.
+   */
+  private boolean isOnDemoSandboxAccountsOnly(PostedTransaction transaction) {
+    List<AccountId> customerAccounts =
+        transaction.entries().stream()
+            .map(Entry::account)
+            .distinct()
+            .filter(account -> accounts.find(account).map(Account::isCustomerAccount).orElse(false))
+            .toList();
+    return !customerAccounts.isEmpty()
+        && customerAccounts.stream().allMatch(accounts::isInDemoSandbox);
+  }
+
+  private static RuntimeException outsideDemoSandboxes() {
+    return Problem.forbidden(
+        "The demo Operator corrects only Transactions on Demo Sandbox Accounts");
   }
 
   private static RuntimeException alreadyReversed(TransactionId original) {
