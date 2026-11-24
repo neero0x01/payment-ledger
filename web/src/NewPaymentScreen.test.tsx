@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { funded, installFakeLedger } from "./fakeLedger";
 import { ACCOUNT_A, ACCOUNT_B } from "./localAccounts";
@@ -48,4 +48,44 @@ test("an Internal Transfer is Completed at once", async () => {
   });
   expect(posts[0]?.headers.get("Idempotency-Key")).toBeTruthy();
   expect(posts[0]?.headers.get("X-XSRF-TOKEN")).toBe("csrf-after-login");
+});
+
+async function makeFasterPayment(user: UserEvent, amount = "25.00") {
+  await user.selectOptions(await screen.findByLabelText("From"), "Account A");
+  await user.click(screen.getByRole("radio", { name: "Faster Payment" }));
+  await user.type(screen.getByLabelText("Sort code"), "123456");
+  await user.type(screen.getByLabelText("Account number"), "12345678");
+  await user.type(screen.getByLabelText("Name"), "Jo Bloggs");
+  await user.type(screen.getByLabelText("Amount (£)"), amount);
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+}
+
+test("a Faster Payment shows Pending until the scheme Completes it", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+
+  await makeFasterPayment(user);
+
+  const status = await paymentStatus();
+  expect(await within(status).findByText("Pending")).toBeInTheDocument();
+  expect(
+    ledger.requests.find(
+      (r) => r.method === "POST" && r.url === "/v1/payments",
+    )?.body,
+  ).toEqual({
+    debtorAccountId: ACCOUNT_A.id,
+    payee: { sortCode: "123456", accountNumber: "12345678", name: "Jo Bloggs" },
+    amountPence: 25_00,
+  });
+
+  ledger.decide({ status: "COMPLETED" });
+
+  await waitFor(
+    () => expect(within(status).getByText("Completed")).toBeInTheDocument(),
+    { timeout: 5_000 },
+  );
 });
