@@ -106,3 +106,70 @@ test("a Transaction's detail shows its Entries and links to its Payment", async 
     screen.getByRole("link", { name: /3 Nov 2026, 10:15/ }),
   ).toBeInTheDocument();
 });
+
+/** The Reversal of PAID_B after a Scheme Rejection, returning A's £30.00. */
+const REVERSAL: FakeTransaction = {
+  id: "019a0000-0000-7000-9000-000000000002",
+  kind: "REVERSAL",
+  bookingTime: "2026-11-03T10:16:00Z",
+  paymentId: PAYMENT.id,
+  reversesTransactionId: PAID_B.id,
+  entries: [
+    {
+      accountId: ACCOUNT_A.id,
+      side: "CREDIT",
+      amountPence: 30_00,
+      balanceAfterPence: 100_00,
+    },
+    {
+      accountId: ACCOUNT_B.id,
+      side: "DEBIT",
+      amountPence: 30_00,
+      balanceAfterPence: 0,
+    },
+  ],
+};
+
+test("a reversed Transaction links to its Reversal, which links back", async () => {
+  installLedger({ transactions: [PAID_B, REVERSAL] });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  await user.click(
+    await screen.findByRole("link", { name: "Reversal, 3 Nov 2026, 10:16" }),
+  );
+
+  expect(
+    await screen.findByRole("heading", { name: "Reversal Transaction" }),
+  ).toBeInTheDocument();
+  expect(
+    await screen.findByRole("link", { name: "Payment, 3 Nov 2026, 10:15" }),
+  ).toBeInTheDocument();
+});
+
+test("a Correction's detail shows its Correction Reason and note", async () => {
+  const correction: FakeTransaction = {
+    ...REVERSAL,
+    kind: "CORRECTION",
+    paymentId: undefined,
+    correctionReason: "DUPLICATE_POSTING",
+    correctionNote: "Paid twice by mistake",
+  };
+  installLedger({ transactions: [PAID_B, correction] });
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  await user.click(
+    await screen.findByRole("link", {
+      name: "Correction, 3 Nov 2026, 10:16",
+    }),
+  );
+
+  expect(
+    await screen.findByRole("heading", { name: "Correction Transaction" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Duplicate Posting")).toBeInTheDocument();
+  expect(screen.getByText("Paid twice by mistake")).toBeInTheDocument();
+});
