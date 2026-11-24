@@ -12,14 +12,11 @@ import {
 } from "@mui/material";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
+import { CORRECTION_REASON, CorrectionForm } from "./CorrectionForm";
 import { accountQuery } from "./ledgerApi";
 import { formatPence } from "./money";
 import { RouterLink } from "./RouterLink";
-import {
-  type CorrectionReason,
-  type Transaction,
-  transactionQuery,
-} from "./transactionApi";
+import { type Transaction, transactionQuery } from "./transactionApi";
 import {
   formatBookingTime,
   TRANSACTION_KIND,
@@ -27,14 +24,6 @@ import {
 } from "./TransactionLink";
 
 const route = getRouteApi("/transactions/$transactionId");
-
-export const CORRECTION_REASON: Record<CorrectionReason, string> = {
-  DUPLICATE_POSTING: "Duplicate Posting",
-  WRONG_AMOUNT: "Wrong Amount",
-  WRONG_ACCOUNT: "Wrong Account",
-  GOODWILL: "Goodwill",
-  OTHER: "Other",
-};
 
 /** One Transaction as the ledger recorded it, for an Operator to investigate and correct. */
 export function TransactionScreen() {
@@ -79,17 +68,17 @@ export function TransactionScreen() {
         )}
         {t.correctionReason && (
           <Typography>
-            Correction Reason:{" "}
-            <span>{CORRECTION_REASON[t.correctionReason]}</span>
+            {`Correction Reason: ${CORRECTION_REASON[t.correctionReason]}`}
           </Typography>
         )}
         {t.correctionNote && (
-          <Typography>
-            Note: <span>{t.correctionNote}</span>
-          </Typography>
+          <Typography>{`Note: ${t.correctionNote}`}</Typography>
         )}
       </Stack>
       <Entries transaction={t} />
+      <Paper sx={{ p: 3 }}>
+        <CorrectionForm transaction={t} />
+      </Paper>
     </Stack>
   );
 }
