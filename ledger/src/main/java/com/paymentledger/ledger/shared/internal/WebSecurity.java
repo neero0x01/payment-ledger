@@ -47,7 +47,7 @@ class WebSecurity {
                 .permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/corrections")
                 .hasRole(Role.OPERATOR.name())
-                .requestMatchers(HttpMethod.GET, "/v1/transactions/**")
+                .requestMatchers(HttpMethod.GET, "/v1/transactions/**", "/v1/dashboard")
                 .hasRole(Role.OPERATOR.name())
                 .requestMatchers(HttpMethod.GET, "/actuator/health")
                 .permitAll()
