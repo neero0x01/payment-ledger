@@ -194,6 +194,12 @@ const correctionPosts = (ledger: ReturnType<typeof installLedger>) =>
     (r) => r.method === "POST" && r.url === "/v1/corrections",
   );
 
+/** The Transaction detail's link to the Correction that reversed it, once it shows one. */
+async function reversedByLink() {
+  const reversedBy = await screen.findByText(/^Reversed by/);
+  return within(reversedBy).findByRole("link", { name: /^Correction, / });
+}
+
 /** Fills in the Correction form for a Reversing Correction and submits it. */
 async function postReversingCorrection(user: UserEvent) {
   const form = await screen.findByRole("form", { name: "Correction" });
@@ -217,9 +223,7 @@ test("an Operator posts a Reversing Correction of a Transaction", async () => {
 
   await postReversingCorrection(user);
 
-  expect(
-    await screen.findByRole("link", { name: /^Correction, / }),
-  ).toBeInTheDocument();
+  expect(await reversedByLink()).toBeInTheDocument();
   const [post] = correctionPosts(ledger);
   expect(post?.body).toEqual({
     kind: "REVERSING",
@@ -271,9 +275,7 @@ test("retrying a failed Correction sends the same Idempotency-Key", async () => 
     within(form).getByRole("button", { name: "Post Correction" }),
   );
 
-  expect(
-    await screen.findByRole("link", { name: /^Correction, / }),
-  ).toBeInTheDocument();
+  expect(await reversedByLink()).toBeInTheDocument();
   const keys = correctionPosts(ledger).map((r) =>
     r.headers.get("Idempotency-Key"),
   );
@@ -297,9 +299,7 @@ test("a double-clicked Correction is posted once", async () => {
     within(form).getByRole("button", { name: "Post Correction" }),
   );
 
-  expect(
-    await screen.findByRole("link", { name: /^Correction, / }),
-  ).toBeInTheDocument();
+  expect(await reversedByLink()).toBeInTheDocument();
   const keys = new Set(
     correctionPosts(ledger).map((r) => r.headers.get("Idempotency-Key")),
   );
@@ -313,7 +313,7 @@ test("a new Correction after one is posted gets a new Idempotency-Key", async ()
   await logIn(user);
 
   await postReversingCorrection(user);
-  await screen.findByRole("link", { name: /^Correction, / });
+  await reversedByLink();
   const form = await postReversingCorrection(user);
 
   expect(await within(form).findByRole("alert")).toHaveTextContent(
@@ -324,4 +324,50 @@ test("a new Correction after one is posted gets a new Idempotency-Key", async ()
   );
   expect(keys).toHaveLength(2);
   expect(keys[1]).not.toBe(keys[0]);
+});
+
+test("an Operator posts an Adjustment to a Customer Account of the Transaction", async () => {
+  const ledger = installLedger();
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+
+  const form = await screen.findByRole("form", { name: "Correction" });
+  await user.click(within(form).getByLabelText("Adjustment"));
+  const account = within(form).getByLabelText(/^Customer Account/);
+  await within(account).findByRole("option", { name: "Account B" });
+  expect(
+    within(account)
+      .getAllByRole("option")
+      .map((o) => o.textContent),
+  ).toEqual(["Account A", "Account B"]);
+  await user.selectOptions(account, "Account A");
+  await user.type(within(form).getByLabelText(/^Amount/), "5.00");
+  await user.selectOptions(
+    within(form).getByLabelText(/^Direction/),
+    "Credit the Customer Account",
+  );
+  await user.selectOptions(
+    within(form).getByLabelText(/^Correction Reason/),
+    "Wrong Amount",
+  );
+  await user.type(within(form).getByLabelText(/^Note/), "Charged £5 too much");
+  await user.click(
+    within(form).getByRole("button", { name: "Post Correction" }),
+  );
+
+  expect(
+    await within(form).findByRole("link", { name: /^Correction, / }),
+  ).toBeInTheDocument();
+  expect(correctionPosts(ledger).map((r) => r.body)).toEqual([
+    {
+      kind: "ADJUSTMENT",
+      transactionId: PAID_B.id,
+      reason: "WRONG_AMOUNT",
+      note: "Charged £5 too much",
+      accountId: ACCOUNT_A.id,
+      amountPence: 5_00,
+      direction: "CREDIT",
+    },
+  ]);
 });
