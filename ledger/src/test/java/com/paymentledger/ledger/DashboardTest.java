@@ -31,9 +31,12 @@ import tools.jackson.databind.json.JsonMapper;
  * balanced-check and Stuck Payment gauges.
  *
  * <p>The context has its own Postgres and Kafka, closed after the class, so the figures count only
- * this class's Payments. Its clock can be moved forward, past every real Payment's minute.
+ * this class's Payments. Its clock can be moved forward, past every real Payment's minute. The
+ * balanced check runs every second instead of every minute.
  */
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = "ledger.balanced-check.interval=PT1S")
 @AutoConfigureRestTestClient
 @Import({
   DedicatedContainersConfiguration.class,
@@ -111,6 +114,27 @@ class DashboardTest {
     assertThat(dashboard.get("outcomes").get("rejected").asLong()).isEqualTo(3);
     assertThat(dashboard.get("rejectionReasons").get("INSUFFICIENT_FUNDS").asLong()).isEqualTo(2);
     assertThat(dashboard.get("rejectionReasons").get("SCHEME_REJECTED").asLong()).isEqualTo(1);
+  }
+
+  @Test
+  void dashboard_shows_the_outbox_lag_and_the_balanced_status_with_the_time_of_the_last_check() {
+    RestTestClient operator = sessions.operator();
+    ledger.customerAccountWithBalance(Money.ofPence(100_00));
+    Instant asked = Instant.now();
+
+    JsonNode dashboard =
+        await()
+            .atMost(PROJECTION)
+            .until(
+                () -> dashboard(operator),
+                d ->
+                    d.path("outboxLag").path("unpublished").asLong(-1) == 0
+                        && d.path("balancedCheck").path("lastRunAt").isString()
+                        && Instant.parse(d.get("balancedCheck").get("lastRunAt").asString())
+                            .isAfter(asked));
+    assertThat(dashboard.get("outboxLag").get("oldestAgeSeconds").asDouble()).isZero();
+    assertThat(dashboard.get("balancedCheck").get("balanced").asBoolean()).isTrue();
+    assertThat(dashboard.get("balancedCheck").get("imbalancePence").asLong()).isZero();
   }
 
   private static JsonNode dashboard(RestTestClient operator) {
