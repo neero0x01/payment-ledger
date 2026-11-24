@@ -113,12 +113,14 @@ class PaymentRepository {
   /**
    * Claims up to the limit of Pending Faster Payments due a Scheme Submission, oldest first,
    * counting a Scheme Submission for each, and returns what to submit. A Payment is due when it has
-   * never been submitted, when its last Scheme Submission failed and the retry delay has passed, or
-   * when its last one was sent but no Scheme Outcome came within the resend delay. A Stuck Payment
-   * is no longer sent: it waits for an Operator. Rows another dispatcher has locked are skipped.
+   * never been submitted, or when its last attempt is older than its delay: the retry delay when
+   * the last Scheme Submission failed, the resend delay when it was sent but no Scheme Outcome came,
+   * and the longer stuck resend delay once it is a Stuck Payment. A Stuck Payment is still sent,
+   * with the same End-to-End Id, so it completes once the scheme answers. Rows another dispatcher
+   * has locked are skipped.
    */
   List<SchemeSubmission> claimFasterPaymentsToSubmit(
-      int limit, Duration retryDelay, Duration resendAfter) {
+      int limit, Duration retryDelay, Duration resendAfter, Duration stuckResendAfter) {
     return jdbc.sql(
             """
             update payment
@@ -127,14 +129,14 @@ class PaymentRepository {
             where id in (
                 select id
                 from payment
-                where type = 'FASTER_PAYMENT' and status = 'PENDING' and not stuck
+                where type = 'FASTER_PAYMENT' and status = 'PENDING'
                   and (last_submitted_at is null
-                       or (submission_attempts = 0
-                           and last_submitted_at
-                               < clock_timestamp() - make_interval(secs => :retryDelay))
-                       or (submission_attempts > 0
-                           and last_submitted_at
-                               < clock_timestamp() - make_interval(secs => :resendAfter)))
+                       or last_submitted_at < clock_timestamp() - make_interval(secs =>
+                              case
+                                when stuck then :stuckResendAfter
+                                when submission_attempts = 0 then :retryDelay
+                                else :resendAfter
+                              end))
                 order by created_at
                 limit :limit
                 for update skip locked)
@@ -144,6 +146,7 @@ class PaymentRepository {
         .param("limit", limit)
         .param("retryDelay", retryDelay.toMillis() / 1000.0)
         .param("resendAfter", resendAfter.toMillis() / 1000.0)
+        .param("stuckResendAfter", stuckResendAfter.toMillis() / 1000.0)
         .query((rs, rowNum) ->
             new SchemeSubmission(
                 new EndToEndId(rs.getString("end_to_end_id")),
@@ -173,7 +176,7 @@ class PaymentRepository {
 
   /**
    * Flags as Stuck Payments the Pending Faster Payments made longer ago than the deadline, and
-   * returns their End-to-End Ids. They stay Pending: nothing is reversed.
+   * returns their End-to-End Ids. They stay Pending and are still sent: nothing is reversed.
    */
   List<EndToEndId> flagStuckPayments(Duration deadline) {
     return jdbc.sql(

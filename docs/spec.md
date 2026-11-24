@@ -197,7 +197,7 @@ Every event is JSON in a shared envelope, with a JSON Schema in `docs/schemas/` 
   - It dedupes on End-to-End Id.
   - It stores outcomes in its own `fpssim` database.
 - **Outcome:** `POST /v1/scheme/callbacks` on the ledger with a slimmed-down pacs.002: End-to-End Id, status `ACSC` or `RJCT`, and a reason code (`AC01`, `AC04`, `AG01` or `MS03`). Callbacks are HMAC-SHA256 signed.
-- **Dispatcher:** polls Pending Faster Payments with no submission, or whose last attempt was more than 15 s ago. It marks a Payment as stuck after 5 min.
+- **Dispatcher:** polls Pending Faster Payments with no submission, or whose last attempt was more than 15 s ago. It marks a Payment as stuck after 5 min, and keeps re-sending a Stuck Payment with the same End-to-End Id once a minute until the scheme answers.
 - **Simulator settings** (environment variables, plus an admin endpoint):
   - accept/reject rate (default 95/5)
   - black-hole rate, where no outcome is ever sent (default 0)

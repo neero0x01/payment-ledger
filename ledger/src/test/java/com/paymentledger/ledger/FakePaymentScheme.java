@@ -30,6 +30,7 @@ public class FakePaymentScheme implements PaymentScheme {
   private final Posting posting;
   private final List<Received> received = new CopyOnWriteArrayList<>();
   private final Set<String> failNextTo = ConcurrentHashMap.newKeySet();
+  private final Set<String> downFor = ConcurrentHashMap.newKeySet();
 
   FakePaymentScheme(Posting posting) {
     this.posting = posting;
@@ -37,7 +38,8 @@ public class FakePaymentScheme implements PaymentScheme {
 
   @Override
   public void submit(SchemeSubmission submission) {
-    if (failNextTo.remove(submission.creditor().accountNumber())) {
+    String creditor = submission.creditor().accountNumber();
+    if (failNextTo.remove(creditor) || downFor.contains(creditor)) {
       throw new IllegalStateException("The scheme is unavailable");
     }
     // Read on another connection, so it sees only what the ledger has committed.
@@ -51,6 +53,19 @@ public class FakePaymentScheme implements PaymentScheme {
    */
   public void failNextSubmissionTo(String creditorAccountNumber) {
     failNextTo.add(creditorAccountNumber);
+  }
+
+  /**
+   * Makes every Scheme Submission to the creditor account number fail, as a scheme that stays down
+   * does, until {@link #comeBackFor} is called.
+   */
+  public void goDownFor(String creditorAccountNumber) {
+    downFor.add(creditorAccountNumber);
+  }
+
+  /** Ends {@link #goDownFor}: Scheme Submissions to the creditor account number arrive again. */
+  public void comeBackFor(String creditorAccountNumber) {
+    downFor.remove(creditorAccountNumber);
   }
 
   /** Every Scheme Submission received so far to the creditor account number. */
