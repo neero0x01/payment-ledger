@@ -20,6 +20,7 @@
   <modules>
     <module>projector</module>
     <module>ledger</module>
+    <module>fps-simulator</module>
   </modules>
 
   <properties>
