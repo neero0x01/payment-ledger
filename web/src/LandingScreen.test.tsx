@@ -8,15 +8,23 @@ afterEach(() => {
   document.cookie = "XSRF-TOKEN=; max-age=0; path=/";
 });
 
-const sandbox = [
-  { id: "019a0000-0000-7000-8000-0000000000c1", name: "Current Account" },
-  { id: "019a0000-0000-7000-8000-0000000000c2", name: "Savings Account" },
-];
+const CURRENT = {
+  id: "019a0000-0000-7000-8000-0000000000c1",
+  name: "Current Account",
+};
+const SAVINGS = {
+  id: "019a0000-0000-7000-8000-0000000000c2",
+  name: "Savings Account",
+};
+const sandbox = [CURRENT, SAVINGS];
 
-const demoSessionRequests = (
+/** The demo sessions the page started, each as its body and CSRF header. */
+const demoSessions = (
   requests: ReturnType<typeof installFakeLedger>["requests"],
 ) =>
-  requests.filter((r) => r.method === "POST" && r.url === "/v1/demo-sessions");
+  requests
+    .filter((r) => r.method === "POST" && r.url === "/v1/demo-sessions")
+    .map((r) => ({ body: r.body, csrf: r.headers.get("X-XSRF-TOKEN") }));
 
 test("the landing page shows the claim, an architecture diagram and both ways to try the demo", async () => {
   installFakeLedger({ accounts: sandbox });
@@ -47,7 +55,7 @@ test("the landing page shows the claim, an architecture diagram and both ways to
 test("Try as customer opens the visitor's own funded Demo Sandbox", async () => {
   const ledger = installFakeLedger({
     accounts: sandbox,
-    entries: funded({ [sandbox[0].id]: 1_000_00, [sandbox[1].id]: 250_00 }),
+    entries: funded({ [CURRENT.id]: 1_000_00, [SAVINGS.id]: 250_00 }),
   });
   const user = userEvent.setup();
   renderApp("/");
@@ -62,9 +70,9 @@ test("Try as customer opens the visitor's own funded Demo Sandbox", async () => 
   expect(
     screen.getByRole("row", { name: /^Savings Account\b/ }),
   ).toHaveTextContent("£250.00");
-  const [demo] = demoSessionRequests(ledger.requests);
-  expect(demo.body).toEqual({ role: "CUSTOMER" });
-  expect(demo.headers.get("X-XSRF-TOKEN")).toBeTruthy();
+  expect(demoSessions(ledger.requests)).toEqual([
+    { body: { role: "CUSTOMER" }, csrf: expect.any(String) },
+  ]);
 });
 
 test("Try as operator logs the visitor in as the demo Operator", async () => {
@@ -80,9 +88,9 @@ test("Try as operator logs the visitor in as the demo Operator", async () => {
     await screen.findByRole("row", { name: /^Current Account\b/ }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Try as operator" })).toBeNull();
-  expect(demoSessionRequests(ledger.requests)[0].body).toEqual({
-    role: "OPERATOR",
-  });
+  expect(demoSessions(ledger.requests)).toEqual([
+    { body: { role: "OPERATOR" }, csrf: expect.any(String) },
+  ]);
 });
 
 test("over the demo's limits, the landing page says why and stays put", async () => {
