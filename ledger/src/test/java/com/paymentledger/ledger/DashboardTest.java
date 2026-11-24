@@ -143,6 +143,22 @@ class DashboardTest {
   }
 
   @Test
+  void projection_freshness_is_zero_once_the_read_model_has_applied_every_event() {
+    RestTestClient operator = sessions.operator();
+    ledger.customerAccountWithBalance(Money.ofPence(100_00));
+
+    JsonNode dashboard =
+        await()
+            .atMost(PROJECTION)
+            .until(
+                () -> dashboard(operator),
+                d ->
+                    d.path("projectionFreshnessSeconds").isNumber()
+                        && d.get("projectionFreshnessSeconds").asDouble() == 0);
+    assertThat(dashboard.get("projectionFreshnessSeconds").asDouble()).isZero();
+  }
+
+  @Test
   void dashboard_lists_stuck_payments() {
     AccountId a = ledger.customerAccountWithBalance(Money.ofPence(100_00));
     RestTestClient customer = sessions.customerOwning(a);
