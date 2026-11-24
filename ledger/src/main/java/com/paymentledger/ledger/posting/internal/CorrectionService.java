@@ -5,6 +5,7 @@ import com.paymentledger.ledger.accounts.Accounts;
 import com.paymentledger.ledger.posting.CorrectionDetails;
 import com.paymentledger.ledger.posting.KeyedCorrection;
 import com.paymentledger.ledger.posting.NewTransaction;
+import com.paymentledger.ledger.posting.PendingPayments;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.shared.AccountId;
@@ -33,10 +34,12 @@ class CorrectionService {
 
   private final Posting posting;
   private final Accounts accounts;
+  private final PendingPayments pendingPayments;
 
-  CorrectionService(Posting posting, Accounts accounts) {
+  CorrectionService(Posting posting, Accounts accounts, PendingPayments pendingPayments) {
     this.posting = posting;
     this.accounts = accounts;
+    this.pendingPayments = pendingPayments;
   }
 
   /**
@@ -84,7 +87,9 @@ class CorrectionService {
 
   /**
    * Posts a Reversing Correction of the original Transaction, booked now. A Transaction is reversed
-   * at most once; the unique index on the link settles two reversals that race.
+   * at most once; the unique index on the link settles two reversals that race. Refuses a
+   * Transaction whose Payment is still Pending as payment-pending: its Scheme Outcome may yet post
+   * a Reversal.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
   IdempotentOutcome<PostedTransaction> reverse(
@@ -102,6 +107,10 @@ class CorrectionService {
     Optional<IdempotentOutcome<PostedTransaction>> replay = replay(keyed);
     if (replay.isPresent()) {
       return replay.get();
+    }
+    if (mistake.payment().filter(pendingPayments::isPending).isPresent()) {
+      throw Problem.paymentPending(
+          "Transaction " + original.value() + " belongs to a Payment that is still Pending");
     }
     if (posting.isReversed(original)) {
       throw alreadyReversed(original);

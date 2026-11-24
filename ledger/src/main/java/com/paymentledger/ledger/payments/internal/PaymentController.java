@@ -129,6 +129,7 @@ class PaymentController {
       long amountPence,
       @Nullable String rejectionReason,
       @Nullable String schemeReasonCode,
+      boolean stuck,
       List<UUID> transactionIds) {
 
     static PaymentResponse of(Payment payment, List<TransactionId> transactions) {
@@ -141,6 +142,7 @@ class PaymentController {
           payment.amount().pence(),
           payment.rejection().map(RejectionReason::name).orElse(null),
           payment.schemeRejection().map(SchemeReasonCode::name).orElse(null),
+          payment.stuck(),
           transactions.stream().map(TransactionId::value).toList());
     }
   }
