@@ -44,6 +44,30 @@ class SchemeSubmissionTest {
     assertThat(callback.signature()).isEqualTo(hmacSha256Hex(callback.body()));
   }
 
+  @Test
+  void rejects_with_a_reason_code_when_the_accept_rate_is_zero() {
+    settings(0.0, 0.0, 0, 0);
+    String endToEndId = newEndToEndId();
+
+    submit(endToEndId, "12345678").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+
+    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    assertThat(callback.status()).isEqualTo("RJCT");
+    assertThat(callback.reasonCode()).isIn("AC01", "AG01", "MS03");
+    assertThat(callback.signature()).isEqualTo(hmacSha256Hex(callback.body()));
+  }
+
+  @Test
+  void a_payee_account_number_ending_0401_always_gets_rjct_ac04() {
+    String endToEndId = newEndToEndId();
+
+    submit(endToEndId, "12340401").expectStatus().isEqualTo(HttpStatus.ACCEPTED);
+
+    LedgerStub.Callback callback = ledger.awaitCallbackFor(endToEndId);
+    assertThat(callback.status()).isEqualTo("RJCT");
+    assertThat(callback.reasonCode()).isEqualTo("AC04");
+  }
+
   RestTestClient.ResponseSpec submit(String endToEndId, String creditorAccountNumber) {
     return http.post()
         .uri("/scheme/v1/submissions")
