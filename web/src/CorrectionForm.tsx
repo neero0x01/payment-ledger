@@ -13,12 +13,11 @@ import {
 } from "@mui/material";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
-import { accountQuery } from "./ledgerApi";
+import { accountQuery, ProblemError } from "./ledgerApi";
 import { parsePounds } from "./money";
 import {
   type CorrectionReason,
   type CorrectionRequest,
-  LedgerProblem,
   postCorrection,
   type Side,
   type Transaction,
@@ -47,7 +46,7 @@ export const CORRECTION_REASON: Record<CorrectionReason, string> = {
 
 /** What a refused Correction means for the Operator, by problem type. */
 function refusal(error: Error): string {
-  if (error instanceof LedgerProblem) {
+  if (error instanceof ProblemError) {
     switch (error.type) {
       case "/problems/already-reversed":
         return "This Transaction has already been reversed, so it can't be reversed again.";

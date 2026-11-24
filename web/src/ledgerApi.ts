@@ -95,7 +95,7 @@ export class ProblemError extends Error {
   }
 }
 
-async function problemOf(response: Response): Promise<Error> {
+export async function problemOf(response: Response): Promise<Error> {
   if (response.headers.get("Content-Type")?.includes("problem+json")) {
     const problem: { type?: string; title?: string; detail?: string } =
       await response.json();

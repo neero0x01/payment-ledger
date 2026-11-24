@@ -187,7 +187,10 @@ const STATUS: Record<
 };
 
 /** The Rejection Reason in the glossary's words, with the scheme's reason code if it gave one. */
-function rejectionReason({ rejectionReason, schemeReasonCode }: Payment) {
+export function rejectionReason({
+  rejectionReason,
+  schemeReasonCode,
+}: Payment) {
   if (rejectionReason === "INSUFFICIENT_FUNDS") return "Insufficient Funds";
   if (rejectionReason === "SCHEME_REJECTED") {
     return schemeReasonCode

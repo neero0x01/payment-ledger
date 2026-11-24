@@ -1,5 +1,11 @@
 import { queryOptions } from "@tanstack/react-query";
-import { csrfHeader, getJson, POLL_INTERVAL_MS } from "./ledgerApi";
+import {
+  csrfHeader,
+  getJson,
+  type Payment,
+  POLL_INTERVAL_MS,
+  problemOf,
+} from "./ledgerApi";
 
 export type TransactionKind = "PAYMENT" | "REVERSAL" | "FUNDING" | "CORRECTION";
 
@@ -30,10 +36,7 @@ export type Transaction = {
 };
 
 /** A Payment as the ledger has it now, with the Transactions it led to, oldest first. */
-export type PaymentDetail = {
-  id: string;
-  type: "INTERNAL_TRANSFER" | "FASTER_PAYMENT";
-  status: "PENDING" | "COMPLETED" | "REJECTED";
+export type PaymentDetail = Payment & {
   debtorAccountId: string;
   payee: {
     accountId: string | null;
@@ -42,8 +45,6 @@ export type PaymentDetail = {
     name: string | null;
   };
   amountPence: number;
-  rejectionReason: string | null;
-  schemeReasonCode: string | null;
   transactionIds: string[];
 };
 
@@ -84,16 +85,6 @@ export type CorrectionRequest =
       direction: Side;
     };
 
-/** A refusal from the ledger, carrying the RFC 9457 problem type clients branch on. */
-export class LedgerProblem extends Error {
-  constructor(
-    readonly type: string,
-    readonly detail: string,
-  ) {
-    super(detail);
-  }
-}
-
 /** Posts a Correction. The Idempotency-Key belongs to one Operator submission. */
 export async function postCorrection(
   correction: CorrectionRequest,
@@ -108,14 +99,6 @@ export async function postCorrection(
     },
     body: JSON.stringify(correction),
   });
-  if (!response.ok) {
-    const problem: { type?: string; detail?: string } = await response
-      .json()
-      .catch(() => ({}));
-    throw new LedgerProblem(
-      problem.type ?? "about:blank",
-      problem.detail ?? `The Correction failed with ${response.status}`,
-    );
-  }
+  if (!response.ok) throw await problemOf(response);
   return response.json();
 }

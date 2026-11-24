@@ -2,6 +2,7 @@ import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { formatPence } from "./money";
+import { rejectionReason } from "./NewPaymentScreen";
 import { paymentQuery } from "./transactionApi";
 import { TransactionLink } from "./TransactionLink";
 
@@ -36,7 +37,7 @@ export function PaymentScreen() {
       <Typography>{formatPence(p.amountPence)}</Typography>
       <Typography>{PAYMENT_STATUS[p.status]}</Typography>
       {p.rejectionReason && (
-        <Typography>Rejection Reason: {p.rejectionReason}</Typography>
+        <Typography>Rejection Reason: {rejectionReason(p)}</Typography>
       )}
       <Typography variant="h5" component="h2">
         Transactions
