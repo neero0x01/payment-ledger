@@ -23,6 +23,8 @@ export type FakeEntry = {
   side: "DEBIT" | "CREDIT";
   amountPence: number;
   counterpartyAccountId?: string | null;
+  /** The Transaction the Entry belongs to; by default each seeded Entry gets one of its own. */
+  transactionId?: string;
 };
 
 type BookedEntry = FakeEntry & {
@@ -105,7 +107,9 @@ export function installFakeLedger({
   function project() {
     projected = booked.length;
   }
-  for (const entry of entries) book(entry, nextTransactionId());
+  for (const entry of entries) {
+    book(entry, entry.transactionId ?? nextTransactionId());
+  }
   project();
 
   const balanceOf = (accountId: string, of: BookedEntry[]) =>

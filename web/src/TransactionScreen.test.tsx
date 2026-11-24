@@ -70,6 +70,16 @@ function installLedger({
   let unavailable = unavailableForFirstCorrection;
   return installFakeLedger({
     accounts,
+    // The Read Model's Statement Lines are the same Entries.
+    entries: transactions.flatMap((t) =>
+      t.entries.map((e) => ({
+        accountId: e.accountId,
+        bookingTime: t.bookingTime,
+        side: e.side,
+        amountPence: e.amountPence,
+        transactionId: t.id,
+      })),
+    ),
     role: "OPERATOR",
     routes: (request) => {
       if (unavailable && request.path === "/v1/corrections") {
@@ -370,4 +380,20 @@ test("an Operator posts an Adjustment to a Customer Account of the Transaction",
       direction: "CREDIT",
     },
   ]);
+});
+
+test("an Operator opens a Transaction from an Account's Statement", async () => {
+  installLedger();
+  const user = userEvent.setup();
+  renderApp(`/accounts/${ACCOUNT_A.id}`);
+  await logIn(user);
+
+  const statement = await screen.findByRole("grid", { name: "Statement" });
+  await user.click(
+    await within(statement).findByRole("link", { name: "3 Nov 2026, 10:15" }),
+  );
+
+  expect(
+    await screen.findByRole("heading", { name: "Payment Transaction" }),
+  ).toBeInTheDocument();
 });
