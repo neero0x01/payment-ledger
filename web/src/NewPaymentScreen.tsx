@@ -30,6 +30,7 @@ import {
   validate,
 } from "./newPaymentForm";
 import { PAYMENT_STATUS, rejectionReason } from "./paymentStatus";
+import { useSubmissionKey } from "./submissionKey";
 
 /** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
 export function NewPaymentScreen() {
@@ -41,10 +42,9 @@ export function NewPaymentScreen() {
   // Problems show once the Customer first tries to pay, then follow the form as it is fixed.
   const [triedToPay, setTriedToPay] = useState(false);
   const problems = triedToPay ? (validate(form).problems ?? {}) : {};
-  // One Idempotency-Key per submission of the form as it stands: a double-click, or paying again
-  // after a lost response, resends it and gets the same Payment back. Editing the form starts a new
-  // submission.
-  const idempotencyKey = useRef<string | null>(null);
+  // A double-click, or paying again after a lost response, resends the same Idempotency-Key and
+  // gets the same Payment back. Editing the form starts a new submission.
+  const submissionKey = useSubmissionKey();
   const sending = useRef(false);
   const payment = useMutation({
     mutationFn: ({
@@ -73,7 +73,7 @@ export function NewPaymentScreen() {
   const field = (name: keyof NewPaymentForm) => ({
     value: form[name],
     onChange: (e: { target: { value: string } }) => {
-      idempotencyKey.current = null;
+      submissionKey.next();
       if (payment.isError) payment.reset();
       setForm((prev) => ({ ...prev, [name]: e.target.value }));
     },
@@ -87,8 +87,7 @@ export function NewPaymentScreen() {
     const { request } = validate(form);
     if (!request || sending.current) return;
     sending.current = true;
-    idempotencyKey.current ??= crypto.randomUUID();
-    payment.mutate({ request, idempotencyKey: idempotencyKey.current });
+    payment.mutate({ request, idempotencyKey: submissionKey.current() });
   }
 
   const accountOptions = [
