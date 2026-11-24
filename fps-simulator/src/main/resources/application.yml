@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: fps-simulator
+  datasource:
+    url: ${FPSSIM_DB_URL:jdbc:postgresql://localhost:5432/fpssim}
+    username: ${FPSSIM_DB_USER:ledger}
+    password: ${FPSSIM_DB_PASSWORD:ledger}
+  mvc:
+    problemdetails:
+      # Refused requests are answered as RFC 9457 problem details, as the ledger's are.
+      enabled: true
+server:
+  port: ${FPSSIM_PORT:8081}
+fpssim:
+  # Where Scheme Outcomes go: the ledger's base URL.
+  ledger-base-url: ${FPSSIM_LEDGER_BASE_URL:http://localhost:8080}
+  # Signs every Scheme Outcome with HMAC-SHA256; the ledger holds the same key.
+  callback-hmac-key: ${FPSSIM_CALLBACK_HMAC_KEY:local-dev-only-scheme-callback-key}
+  # The starting settings (spec §5); PUT /admin/settings changes them while the simulator runs.
+  accept-rate: ${FPSSIM_ACCEPT_RATE:0.95}
+  black-hole-rate: ${FPSSIM_BLACK_HOLE_RATE:0}
+  latency-p50-ms: ${FPSSIM_LATENCY_P50_MS:200}
+  latency-p99-ms: ${FPSSIM_LATENCY_P99_MS:2000}

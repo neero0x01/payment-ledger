@@ -9,7 +9,8 @@ import org.jspecify.annotations.Nullable;
 /**
  * A Customer's instruction to move money out of one of their Customer Accounts. A Rejected Payment
  * carries its Rejection Reason; any other Payment has none. A Payment Rejected by a Scheme
- * Rejection also carries the scheme's reason code.
+ * Rejection also carries the scheme's reason code. A Faster Payment still Pending after its Scheme
+ * Outcome deadline is a Stuck Payment.
  */
 public record Payment(
     PaymentId id,
@@ -19,7 +20,8 @@ public record Payment(
     Payee payee,
     Money amount,
     @Nullable RejectionReason rejectionReason,
-    @Nullable SchemeReasonCode schemeReasonCode) {
+    @Nullable SchemeReasonCode schemeReasonCode,
+    boolean stuck) {
 
   public Optional<RejectionReason> rejection() {
     return Optional.ofNullable(rejectionReason);

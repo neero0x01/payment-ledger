@@ -45,6 +45,15 @@ docker compose run --rm projector --rebuild
 docker compose start projector
 ```
 
+Faster Payments go to the FPS simulator on http://localhost:8081. It accepts 95% of them by default and always rejects a Payee account number ending `0401` with `AC04`. To show failure handling, change its accept rate, black-hole rate (submissions it never answers) and latency while it runs:
+
+```sh
+curl -X PUT localhost:8081/admin/settings -H 'Content-Type: application/json' \
+  -d '{"acceptRate": 0.5, "blackHoleRate": 0.1, "latencyP50Ms": 200, "latencyP99Ms": 2000}'
+```
+
+The same settings start from the `FPSSIM_ACCEPT_RATE`, `FPSSIM_BLACK_HOLE_RATE`, `FPSSIM_LATENCY_P50_MS` and `FPSSIM_LATENCY_P99_MS` environment variables.
+
 ### Seed data
 
 The seed CLI in `seed/` loads about 1M synthetic Transactions, booked from 2025-11-01 to 2026-10-31, into an empty ledger database: 5,000 Customers with about 6,500 Customer Accounts, and 200 load-test Accounts with £1,000,000.00 each. It starts from a fixed random seed, so every run generates identical data. It migrates the database, refuses one that already has Transactions, and bulk-loads everything with `COPY` in one database transaction, marked `source=SEED`. The running ledger's outbox publisher then drains the seeded events into Kafka, and the projector builds the Read Model from them. Start from a fresh database (`docker compose down -v`) and seed it before the ledger first starts, since the `local` profile posts a Transaction of its own:

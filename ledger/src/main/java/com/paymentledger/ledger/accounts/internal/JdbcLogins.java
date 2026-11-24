@@ -21,6 +21,8 @@ class JdbcLogins implements Logins {
   static final PasswordEncoder PASSWORDS =
       PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
+  private static final String DEMO_OPERATOR = "demo-operator";
+
   private final JdbcClient jdbc;
 
   JdbcLogins(JdbcClient jdbc) {
@@ -35,6 +37,35 @@ class JdbcLogins implements Logins {
   @Override
   public void addOperatorLogin(String username, String password) {
     insert(username, password, Role.OPERATOR, null);
+  }
+
+  @Override
+  public OperatorId demoOperator() {
+    // A random password nobody knows: the demo Operator is reached only through a demo session.
+    jdbc.sql(
+            """
+            insert into login (username, password_hash, role, demo)
+            values (:username, :passwordHash, 'OPERATOR', true)
+            on conflict (username) do nothing
+            """)
+        .param("username", DEMO_OPERATOR)
+        .param("passwordHash", PASSWORDS.encode(UUID.randomUUID().toString()))
+        .update();
+    UUID id =
+        jdbc.sql("select id from login where username = :username and demo")
+            .param("username", DEMO_OPERATOR)
+            .query(UUID.class)
+            .single();
+    return new OperatorId(id);
+  }
+
+  @Override
+  public boolean isDemoOperator(OperatorId operator) {
+    return jdbc.sql("select demo from login where id = :id")
+        .param("id", operator.value())
+        .query(Boolean.class)
+        .optional()
+        .orElse(false);
   }
 
   Optional<StoredLogin> find(String username) {

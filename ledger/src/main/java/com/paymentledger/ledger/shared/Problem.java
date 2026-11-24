@@ -29,6 +29,11 @@ public final class Problem extends RuntimeException {
     return new Problem(ProblemType.ALREADY_REVERSED, detail);
   }
 
+  /** The Transaction belongs to a Payment still awaiting its final outcome. */
+  public static Problem paymentPending(String detail) {
+    return new Problem(ProblemType.PAYMENT_PENDING, detail);
+  }
+
   /** A request that must be safe to retry came without an Idempotency-Key header. */
   public static Problem idempotencyKeyMissing(String detail) {
     return new Problem(ProblemType.IDEMPOTENCY_KEY_MISSING, detail);
@@ -47,6 +52,11 @@ public final class Problem extends RuntimeException {
   /** The Principal may not do this, or the request lacks its CSRF token. */
   public static Problem forbidden(String detail) {
     return new Problem(ProblemType.FORBIDDEN, detail);
+  }
+
+  /** The request goes beyond one of the public demo's abuse limits. */
+  public static Problem rateLimited(String detail) {
+    return new Problem(ProblemType.RATE_LIMITED, detail);
   }
 
   /** Refuses an amount of zero or less as validation-failed. */

@@ -78,6 +78,7 @@ export function installFakeLedger({
   credentials = { username: "local-customer", password: "local-customer" },
   role = "CUSTOMER",
   routes,
+  demoRateLimited = false,
 }: {
   accounts: FakeAccount[];
   entries?: FakeEntry[];
@@ -86,6 +87,8 @@ export function installFakeLedger({
   role?: "CUSTOMER" | "OPERATOR";
   /** More of the API, answered before the fake's own routes; undefined falls through to them. */
   routes?: (request: FakeRequest) => Response | undefined;
+  /** Refuse every demo session as over the demo's limits, as the ledger does with a 429. */
+  demoRateLimited?: boolean;
 }) {
   const requests: {
     method: string;
@@ -102,6 +105,7 @@ export function installFakeLedger({
     { request: string; payment: FakePayment }
   >();
   let loggedIn = false;
+  let sessionRole = role;
   let csrfToken = "csrf-before-login";
 
   function book(entry: FakeEntry, transactionId: string) {
@@ -305,12 +309,41 @@ export function installFakeLedger({
       setCsrfCookie();
       return new Response(null, { status: 204 });
     }
+    // A demo session logs in as the Customer of a Demo Sandbox (the fake's Accounts) or as the
+    // demo Operator.
+    if (method === "POST" && path === "/v1/demo-sessions") {
+      if (demoRateLimited) {
+        return new Response(
+          JSON.stringify({
+            type: "/problems/rate-limited",
+            title: "Rate limited",
+            status: 429,
+            detail:
+              "One Demo Sandbox per visitor every 10 minutes; try again later",
+          }),
+          {
+            status: 429,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        );
+      }
+      loggedIn = true;
+      sessionRole = body.role;
+      return json(201, {
+        role: sessionRole,
+        customerId:
+          sessionRole === "CUSTOMER"
+            ? "019a0000-0000-7000-8000-0000000000cc"
+            : null,
+        accountIds: sessionRole === "CUSTOMER" ? accounts.map((a) => a.id) : [],
+      });
+    }
     if (!loggedIn) return problem(401);
 
     const routed = routes?.({ method, path, headers, body });
     if (routed) return routed;
     if (method === "GET" && path === "/v1/session") {
-      return json(200, { role });
+      return json(200, { role: sessionRole });
     }
     if (method === "GET" && path === "/v1/accounts") {
       return json(200, accounts.map(accountView));
