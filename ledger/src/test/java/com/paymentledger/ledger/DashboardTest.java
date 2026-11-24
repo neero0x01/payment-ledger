@@ -104,7 +104,8 @@ class DashboardTest {
     JsonNode dashboard =
         await()
             .atMost(PROJECTION)
-            .until(() -> dashboard(operator), d -> d.path("outcomes").path("rejected").asLong() == 3);
+            .until(
+                () -> dashboard(operator), d -> d.path("outcomes").path("rejected").asLong() == 3);
     assertThat(dashboard.get("paymentsPerSecond").asDouble()).isEqualTo(0.1);
     assertThat(dashboard.get("outcomes").get("completed").asLong()).isEqualTo(4);
     assertThat(dashboard.get("outcomes").get("rejected").asLong()).isEqualTo(3);
