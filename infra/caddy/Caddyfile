@@ -1,0 +1,5 @@
+# Fronts the ledger API (spec §15). In production LEDGER_API_HOST is api.ledger.<your-domain> and
+# Caddy gets and renews its TLS certificate; locally it is :80, plain HTTP.
+{$LEDGER_API_HOST} {
+	reverse_proxy ledger:8080
+}
