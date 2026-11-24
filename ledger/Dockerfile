@@ -7,6 +7,8 @@ COPY .mvn .mvn
 COPY ledger/pom.xml ledger/pom.xml
 # The ledger's tests run the projector, so the reactor needs it too.
 COPY projector/pom.xml projector/pom.xml
+# The parent pom lists every module, so the reactor needs each one's pom.
+COPY fps-simulator/pom.xml fps-simulator/pom.xml
 RUN ./mvnw -B -ntp -pl ledger -am dependency:go-offline
 COPY projector/src projector/src
 COPY ledger/src ledger/src

@@ -6,6 +6,8 @@ COPY mvnw pom.xml ./
 COPY .mvn .mvn
 COPY projector/pom.xml projector/pom.xml
 COPY ledger/pom.xml ledger/pom.xml
+# The parent pom lists every module, so the reactor needs each one's pom.
+COPY fps-simulator/pom.xml fps-simulator/pom.xml
 RUN ./mvnw -B -ntp -pl projector -am dependency:go-offline
 COPY projector/src projector/src
 RUN ./mvnw -B -ntp -pl projector -am package -DskipTests -Dspotless.check.skip=true

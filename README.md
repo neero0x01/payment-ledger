@@ -45,6 +45,15 @@ docker compose run --rm projector --rebuild
 docker compose start projector
 ```
 
+Faster Payments go to the FPS simulator on http://localhost:8081. It accepts 95% of them by default and always rejects a Payee account number ending `0401` with `AC04`. To show failure handling, change its accept rate, black-hole rate (submissions it never answers) and latency while it runs:
+
+```sh
+curl -X PUT localhost:8081/admin/settings -H 'Content-Type: application/json' \
+  -d '{"acceptRate": 0.5, "blackHoleRate": 0.1, "latencyP50Ms": 200, "latencyP99Ms": 2000}'
+```
+
+The same settings start from the `FPSSIM_ACCEPT_RATE`, `FPSSIM_BLACK_HOLE_RATE`, `FPSSIM_LATENCY_P50_MS` and `FPSSIM_LATENCY_P99_MS` environment variables.
+
 Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page.
 
 ## Docs
