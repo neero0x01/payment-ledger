@@ -209,3 +209,89 @@ test("a new submission after a Payment is made gets a new Idempotency-Key", asyn
   const keys = idempotencyKeysSent(ledger);
   expect(keys[1]).not.toBe(keys[0]);
 });
+
+test("a Faster Payment with an invalid Payee shows each problem beside its field", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await user.selectOptions(await screen.findByLabelText("From"), "Account A");
+  await user.click(screen.getByRole("radio", { name: "Faster Payment" }));
+  await user.type(screen.getByLabelText("Sort code"), "12345");
+  await user.type(screen.getByLabelText("Account number"), "1234567x");
+  await user.type(screen.getByLabelText("Amount (£)"), "0");
+
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+
+  expect(screen.getByLabelText("Sort code")).toHaveAccessibleDescription(
+    "Enter the six-digit sort code",
+  );
+  expect(screen.getByLabelText("Account number")).toHaveAccessibleDescription(
+    "Enter the eight-digit account number",
+  );
+  expect(screen.getByLabelText("Name")).toHaveAccessibleDescription(
+    "Enter the Payee's name",
+  );
+  expect(screen.getByLabelText("Amount (£)")).toHaveAccessibleDescription(
+    "Enter an amount more than £0.00",
+  );
+  expect(idempotencyKeysSent(ledger)).toHaveLength(0);
+});
+
+test("an Internal Transfer to the payer's own Account or over £1,000,000.00 is shown as invalid", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await user.selectOptions(await screen.findByLabelText("From"), "Account A");
+  await user.selectOptions(screen.getByLabelText("To"), "Account A");
+  await user.type(screen.getByLabelText("Amount (£)"), "1000000.01");
+
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+
+  expect(screen.getByLabelText("To")).toHaveAccessibleDescription(
+    "Choose an Account other than the one paying",
+  );
+  expect(screen.getByLabelText("Amount (£)")).toHaveAccessibleDescription(
+    "Enter an amount of at most £1,000,000.00",
+  );
+  expect(idempotencyKeysSent(ledger)).toHaveLength(0);
+});
+
+test("a validation problem from the ledger is shown in the form", async () => {
+  installFakeLedger({ accounts, entries: funded({ [ACCOUNT_A.id]: 100_00 }) });
+  const ledgerFetch = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST" && input.toString() === "/v1/payments") {
+        return new Response(
+          JSON.stringify({
+            type: "/problems/validation-failed",
+            title: "Validation failed",
+            status: 400,
+            detail: "The Payee's sort code must be six digits",
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        );
+      }
+      return ledgerFetch(input, init);
+    },
+  );
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await makeFasterPayment(user);
+
+  const form = screen.getByRole("form", { name: "New Payment" });
+  expect(await within(form).findByRole("alert")).toHaveTextContent(
+    "The Payee's sort code must be six digits",
+  );
+  expect(screen.queryByRole("region", { name: "Payment Status" })).toBeNull();
+});
