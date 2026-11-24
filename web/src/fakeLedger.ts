@@ -134,9 +134,29 @@ export function installFakeLedger({
     amountPence: number;
   }): FakePayment {
     const { debtorAccountId, payee, amountPence } = request;
+    const internal = payee.accountId !== undefined;
+    const id = `019a0000-0000-7000-8000-${String(payments.length + 1).padStart(12, "0")}`;
+    const type = internal ? "INTERNAL_TRANSFER" : "FASTER_PAYMENT";
+    const debtor = accounts.find((a) => a.id === debtorAccountId);
+    const available =
+      balanceOf(debtorAccountId, booked) + (debtor?.overdraftLimitPence ?? 0);
+    if (amountPence > available) {
+      const rejected: FakePayment = {
+        id,
+        type,
+        status: "REJECTED",
+        debtorAccountId,
+        payee,
+        amountPence,
+        rejectionReason: "INSUFFICIENT_FUNDS",
+        schemeReasonCode: null,
+        transactionIds: [],
+      };
+      payments.push(rejected);
+      return rejected;
+    }
     const transactionId = nextTransactionId();
     const bookingTime = new Date().toISOString();
-    const internal = payee.accountId !== undefined;
     book(
       {
         accountId: debtorAccountId,
@@ -161,8 +181,8 @@ export function installFakeLedger({
     }
     if (!trailing) project();
     const payment: FakePayment = {
-      id: `019a0000-0000-7000-8000-${String(payments.length + 1).padStart(12, "0")}`,
-      type: internal ? "INTERNAL_TRANSFER" : "FASTER_PAYMENT",
+      id,
+      type,
       status: internal ? "COMPLETED" : "PENDING",
       debtorAccountId,
       payee,

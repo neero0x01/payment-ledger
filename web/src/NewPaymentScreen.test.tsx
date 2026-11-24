@@ -88,3 +88,40 @@ test("a Faster Payment shows Pending until the scheme Completes it", async () =>
     { timeout: 5_000 },
   );
 });
+
+test("a Faster Payment the scheme rejects shows Rejected with its Rejection Reason", async () => {
+  const ledger = installFakeLedger({
+    accounts,
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+  });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await makeFasterPayment(user);
+  const status = await paymentStatus();
+  await within(status).findByText("Pending");
+
+  ledger.decide({ status: "REJECTED", schemeReasonCode: "AC04" });
+
+  await waitFor(
+    () => expect(within(status).getByText("Rejected")).toBeInTheDocument(),
+    { timeout: 5_000 },
+  );
+  expect(
+    within(status).getByText("Scheme Rejected (AC04)"),
+  ).toBeInTheDocument();
+});
+
+test("a Payment beyond the Available Balance shows Rejected for Insufficient Funds", async () => {
+  installFakeLedger({ accounts, entries: funded({ [ACCOUNT_A.id]: 10_00 }) });
+  const user = userEvent.setup();
+  await openNewPayment(user);
+
+  await user.selectOptions(await screen.findByLabelText("From"), "Account A");
+  await user.selectOptions(screen.getByLabelText("To"), "Account B");
+  await user.type(screen.getByLabelText("Amount (£)"), "10.01");
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+
+  const status = await paymentStatus();
+  expect(await within(status).findByText("Rejected")).toBeInTheDocument();
+  expect(within(status).getByText("Insufficient Funds")).toBeInTheDocument();
+});
