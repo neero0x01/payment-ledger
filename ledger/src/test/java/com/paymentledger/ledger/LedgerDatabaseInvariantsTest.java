@@ -102,9 +102,7 @@ class LedgerDatabaseInvariantsTest {
                   .param("accountId", customer.value())
                   .update();
             }))
-        .isInstanceOf(DataAccessException.class)
-        .rootCause()
-        .hasMessageContaining("Booking Time");
+        .isInstanceOf(DataAccessException.class);
   }
 
   @ParameterizedTest

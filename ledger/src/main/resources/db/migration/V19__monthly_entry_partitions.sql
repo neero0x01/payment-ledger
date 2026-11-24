@@ -98,20 +98,33 @@ select setval(
 
 drop table entry_unpartitioned;
 
--- A row trigger on a partitioned table fires with the partition's name in tg_table_name, so the
--- double-entry guard (V2) tells its two tables apart by the Transaction's table instead.
+-- The double-entry guard (V2), changed for the partitioned table in two ways:
+--
+-- * A row trigger on a partitioned table fires with the partition's name in tg_table_name, so the
+--   guard tells its two tables apart by the Transaction's table instead.
+-- * Every Entry is booked at its Transaction's Booking Time, which the guard now enforces. That
+--   lets it look a Transaction's Entries up in the one partition of that Booking Time, rather than
+--   probing every month's index, a cost that would grow with every month the ledger runs.
 create or replace function check_transaction_balanced() returns trigger
 language plpgsql as $$
 declare
     checked_id  uuid;
+    booking     timestamptz;
     entry_count bigint;
     debits      numeric;
     credits     numeric;
 begin
     if tg_table_name = 'ledger_transaction' then
         checked_id := new.id;
+        booking := new.booked_at;
     else
         checked_id := new.transaction_id;
+        select booked_at into booking from ledger_transaction where id = checked_id;
+        if new.booked_at is distinct from booking then
+            raise exception 'Entry % of Transaction % is booked at %, not at its Transaction''s Booking Time %',
+                    new.id, checked_id, new.booked_at, booking
+                using errcode = 'integrity_constraint_violation';
+        end if;
     end if;
 
     select count(*),
@@ -119,7 +132,7 @@ begin
            coalesce(sum(amount_pence) filter (where side = 'CREDIT'), 0)
     into entry_count, debits, credits
     from entry
-    where transaction_id = checked_id;
+    where transaction_id = checked_id and booked_at = booking;
 
     if entry_count < 2 then
         raise exception 'Transaction % has % Entries; it needs at least two', checked_id, entry_count
