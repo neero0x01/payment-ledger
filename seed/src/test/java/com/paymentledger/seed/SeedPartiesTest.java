@@ -46,7 +46,7 @@ class SeedPartiesTest {
             .filter(account -> account.account().overdraftLimit().isPositive())
             .count();
 
-    assertThat(withOverdraft).isBetween(80L, 120L);
+    assertThat((double) withOverdraft / customerAccounts.size()).isBetween(0.08, 0.12);
   }
 
   @Test
