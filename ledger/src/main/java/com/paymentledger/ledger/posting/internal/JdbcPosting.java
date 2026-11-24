@@ -12,6 +12,7 @@ import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.posting.TransactionKind;
+import com.paymentledger.ledger.posting.TransactionSource;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
@@ -208,7 +209,7 @@ class JdbcPosting implements Posting {
     return jdbc.sql(
             """
             select id, kind, booked_at, payment_id, reverses_transaction_id,
-                   correction_reason, correction_note
+                   correction_reason, correction_note, source
             from ledger_transaction
             where id = :id
             """)
@@ -227,6 +228,7 @@ class JdbcPosting implements Posting {
                   ? null
                   : new CorrectionDetails(
                       CorrectionReason.valueOf(reason), rs.getString("correction_note")),
+              TransactionSource.valueOf(rs.getString("source")),
               entries);
         })
         .optional();

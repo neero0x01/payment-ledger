@@ -5,6 +5,7 @@ import com.paymentledger.ledger.posting.Entry;
 import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
+import com.paymentledger.ledger.posting.TransactionSource;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.TransactionId;
@@ -65,6 +66,7 @@ final class SeedPosting {
             transaction.payment().orElse(null),
             transaction.reverses().orElse(null),
             transaction.correction().orElse(null),
+            TransactionSource.SEED,
             posted);
     sink.transaction(postedTransaction, random.uuidV4());
     return postedTransaction;
