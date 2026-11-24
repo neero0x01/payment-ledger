@@ -29,7 +29,7 @@ The double-entry guard (V2) used to find a Transaction's Entries through `transa
 
 ## Evidence
 
-Measured on Postgres 18 (Docker, `shared_buffers=256MB`) with the seed CLI at `--customers=5200`: **1,015,657 Transactions** and 2,031,314 Entries across 12 monthly partitions (Nov 2025 to Oct 2026). **Before** is the shape before V21: one unpartitioned table with its primary key on `id`, plus the `transaction_id` index the double-entry guard uses. **After** is the V21 shape: partitioned and indexed. Both hold the same rows and were `VACUUM ANALYZE`d. The Account is the busiest Customer Account (251 Entries; the median is 189). Each query ran once to warm the cache, and the plans below are from the second run, trimmed to the lines that matter.
+Measured on Postgres 18 (Docker, `shared_buffers=256MB`) with the seed CLI at `--customers=5200`: 5,200 generated Customers plus the 200 load-test Customers, so 5,400 Customers in all. The default seed (`--customers=5000`, spec §10) has 5,000 generated Customers and 5,200 in all, so this run is slightly larger than the default one, with **1,015,657 Transactions** and 2,031,314 Entries across 12 monthly partitions (Nov 2025 to Oct 2026). **Before** is the shape before V21: one unpartitioned table with its primary key on `id`, plus the `transaction_id` index the double-entry guard uses. **After** is the V21 shape: partitioned and indexed. Both hold the same rows and were `VACUUM ANALYZE`d. The Account is the busiest Customer Account (251 Entries; the median is 189). Each query ran once to warm the cache, and the plans below are from the second run, trimmed to the lines that matter.
 
 | Query | Before | After |
 |---|---|---|

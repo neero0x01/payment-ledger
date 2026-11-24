@@ -67,9 +67,14 @@ The seed CLI in `seed/` loads about 1M synthetic Transactions, booked from 2025-
 ```sh
 docker compose up -d postgres
 ./mvnw -pl seed -am package -DskipTests
-java -jar seed/target/seed-0.1.0-SNAPSHOT.jar   # or --url=… --user=… --password=… --customers=…
+SEED_LOAD_TEST_PASSWORD='choose-one' java -jar seed/target/seed-0.1.0-SNAPSHOT.jar
+# or --url=… --user=… --password=… --customers=… --load-test-password=…
 docker compose up --build
 ```
+
+The default seed has 5,200 Customers in all: the 5,000 that `--customers` sets, plus the 200 load-test Customers who each own one load-test Account.
+
+**Load-test logins.** So the load test can make Payments from the 200 load-test Accounts, the seed gives each load-test Customer a login when it is given a password: `load-test-001` to `load-test-200`, where `load-test-NNN` owns `Load Test Account NNN`. The password comes from `--load-test-password` or, failing that, the `SEED_LOAD_TEST_PASSWORD` environment variable, and every load-test login shares it. There is no default: without a password the seed adds no logins. Choose a fresh one per environment and keep it with the load test's secrets, never in the repository.
 
 All seed data is synthetic. Customer names come from Datafaker with a fixed seed. **Every sort code in seed data is in the range 00-00-00 to 00-99-99, which this project treats as fictional**: the fintech's Customer Accounts are at 00-01-00, and Payees of seeded Faster Payments at the rest of the range. They stand in for real UK sort codes and must never be used to make a real payment.
 

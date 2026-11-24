@@ -12,6 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class SeedLoadTest {
   private static final int CUSTOMERS = 20;
   private static final String OPERATOR = "seed-test-operator";
   private static final String PASSWORD = "correct horse battery staple";
+  private static final String LOAD_TEST_PASSWORD = "load test " + UUID.randomUUID();
   private static final Duration DRAINED = Duration.ofSeconds(90);
 
   private static final PostgreSQLContainer POSTGRES =
@@ -47,7 +49,8 @@ class SeedLoadTest {
 
   private static ConfigurableApplicationContext ledger;
   private static ConfigurableApplicationContext projector;
-  private static OperatorClient operator;
+  private static SessionClient operator;
+  private static URI base;
 
   @BeforeAll
   static void seedThenStartTheLedgerAndProjector() {
@@ -77,10 +80,10 @@ class SeedLoadTest {
                 "--spring.datasource.password=" + POSTGRES.getPassword(),
                 "--spring.kafka.bootstrap-servers=" + KAFKA.getBootstrapServers());
     ledger.getBean(Logins.class).addOperatorLogin(OPERATOR, PASSWORD);
-    URI base =
+    base =
         URI.create(
             "http://localhost:" + ledger.getEnvironment().getRequiredProperty("local.server.port"));
-    operator = OperatorClient.logIn(base, OPERATOR, PASSWORD);
+    operator = SessionClient.logIn(base, OPERATOR, PASSWORD);
   }
 
   @AfterAll
@@ -150,7 +153,7 @@ class SeedLoadTest {
     String seeded = firstTransactionOn(accountId);
     long before = balancePenceOf(accountId);
 
-    OperatorClient.Response refused =
+    SessionClient.Response refused =
         operator.post(
             "/v1/corrections",
             """
@@ -169,7 +172,7 @@ class SeedLoadTest {
     String accountId = loadTestAccountId();
     long before = balancePenceOf(accountId);
 
-    OperatorClient.Response refused =
+    SessionClient.Response refused =
         operator.post(
             "/v1/corrections",
             """
@@ -181,6 +184,24 @@ class SeedLoadTest {
     assertThat(refused.status()).isEqualTo(409);
     assertThat(refused.body().get("type").asString()).isEqualTo("/problems/seed-data-read-only");
     assertThat(balancePenceOf(accountId)).isEqualTo(before);
+  }
+
+  @Test
+  void load_test_customer_logs_in_and_pays_from_their_load_test_account() {
+    String from = accountIdNamed("Load Test Account 200");
+    String to = accountIdNamed("Load Test Account 199");
+    SessionClient customer = SessionClient.logIn(base, "load-test-200", LOAD_TEST_PASSWORD);
+
+    SessionClient.Response payment =
+        customer.post(
+            "/v1/payments",
+            """
+            {"debtorAccountId": "%s", "payee": {"accountId": "%s"}, "amountPence": 100}
+            """
+                .formatted(from, to));
+
+    assertThat(payment.status()).isEqualTo(201);
+    assertThat(payment.body().get("status").asString()).isEqualTo("COMPLETED");
   }
 
   @Test
@@ -202,8 +223,12 @@ class SeedLoadTest {
   }
 
   private static String loadTestAccountId() {
+    return accountIdNamed("Load Test Account 001");
+  }
+
+  private static String accountIdNamed(String name) {
     return list(operator.get("/v1/accounts")).stream()
-        .filter(account -> account.get("name").asString().equals("Load Test Account 001"))
+        .filter(account -> account.get("name").asString().equals(name))
         .findFirst()
         .orElseThrow()
         .get("id")
@@ -248,7 +273,8 @@ class SeedLoadTest {
       "--url=" + POSTGRES.getJdbcUrl(),
       "--user=" + POSTGRES.getUsername(),
       "--password=" + POSTGRES.getPassword(),
-      "--customers=" + CUSTOMERS
+      "--customers=" + CUSTOMERS,
+      "--load-test-password=" + LOAD_TEST_PASSWORD
     };
   }
 

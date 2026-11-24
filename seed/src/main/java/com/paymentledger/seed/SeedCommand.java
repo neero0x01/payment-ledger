@@ -21,16 +21,21 @@ import org.flywaydb.core.Flyway;
  *
  * <pre>
  * java -jar seed.jar [--url=jdbc:postgresql://localhost:5432/ledger] [--user=ledger]
- *                    [--password=ledger] [--customers=5000]
+ *                    [--password=ledger] [--customers=5000] [--load-test-password=…]
  * </pre>
  *
  * The connection defaults come from LEDGER_DB_URL, LEDGER_DB_USER and LEDGER_DB_PASSWORD, as the
  * ledger's do, and the user must own the schema. Fewer Customers make a smaller seed in the same
  * proportions.
+ *
+ * <p>With a load-test password, from {@code --load-test-password} or SEED_LOAD_TEST_PASSWORD, each
+ * of the 200 load-test Customers gets a login, {@code load-test-001} to {@code load-test-200}, with
+ * that password. Without one, the seed adds no logins: there is no default password.
  */
 public final class SeedCommand {
 
-  private static final Set<String> OPTIONS = Set.of("url", "user", "password", "customers");
+  private static final Set<String> OPTIONS =
+      Set.of("url", "user", "password", "customers", "load-test-password");
 
   private SeedCommand() {}
 
@@ -52,6 +57,8 @@ public final class SeedCommand {
     String user = options.getOrDefault("user", env("LEDGER_DB_USER", "ledger"));
     String password = options.getOrDefault("password", env("LEDGER_DB_PASSWORD", "ledger"));
     int customers = Integer.parseInt(options.getOrDefault("customers", "5000"));
+    String loadTestPassword =
+        options.getOrDefault("load-test-password", env("SEED_LOAD_TEST_PASSWORD", ""));
 
     Flyway.configure().dataSource(url, user, password).load().migrate();
     Path directory = temporaryDirectory();
@@ -64,6 +71,12 @@ public final class SeedCommand {
       }
       long generated = System.nanoTime();
       Map<SeedTable, Long> rows = loader.load(files);
+      if (loadTestPassword.isEmpty()) {
+        System.out.println("No load-test password given, so no load-test logins were added");
+      } else {
+        int logins = loader.addLoadTestLogins(loadTestPassword);
+        System.out.printf("Added %d load-test logins, load-test-NNN%n", logins);
+      }
       long copied = System.nanoTime();
       loader.commit();
       long committed = System.nanoTime();
@@ -88,7 +101,9 @@ public final class SeedCommand {
       String name = arg.startsWith("--") && equals > 2 ? arg.substring(2, equals) : "";
       if (!OPTIONS.contains(name)) {
         throw new IllegalArgumentException(
-            "Unknown argument " + arg + "; expected --url, --user, --password or --customers");
+            "Unknown argument "
+                + arg
+                + "; expected --url, --user, --password, --customers or --load-test-password");
       }
       options.put(name, arg.substring(equals + 1));
     }
