@@ -69,6 +69,9 @@ ledger:
     # Signs every Scheme Outcome callback with HMAC-SHA256. Read from SSM in production (spec §10).
     callback-hmac-key: ${SCHEME_CALLBACK_HMAC_KEY:local-dev-only-scheme-callback-key}
 server:
+  # The visitor's IP address comes from the X-Forwarded-For header that the proxy in front of the
+  # ledger sets; only proxies on internal addresses are trusted to set it (demo limits, spec §8).
+  forward-headers-strategy: native
   servlet:
     session:
       cookie:

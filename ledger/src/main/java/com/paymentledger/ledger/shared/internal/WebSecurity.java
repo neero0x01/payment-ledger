@@ -42,6 +42,9 @@ class WebSecurity {
                 // The scheme has no session; its callbacks carry an HMAC signature instead.
                 .requestMatchers(HttpMethod.POST, "/v1/scheme/callbacks")
                 .permitAll()
+                // The public demo: anyone may start a demo session, within its limits.
+                .requestMatchers(HttpMethod.POST, "/v1/demo-sessions")
+                .permitAll()
                 .requestMatchers(HttpMethod.POST, "/v1/corrections")
                 .hasRole(Role.OPERATOR.name())
                 .requestMatchers(HttpMethod.GET, "/v1/transactions/**")

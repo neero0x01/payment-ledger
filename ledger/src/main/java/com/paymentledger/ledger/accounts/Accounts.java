@@ -12,6 +12,9 @@ public interface Accounts {
 
   CustomerId registerCustomer(String displayName);
 
+  /** Registers the Customer of a new Demo Sandbox, for one visitor to the public demo. */
+  CustomerId registerDemoCustomer(String displayName);
+
   /** Opens a credit-normal Customer Account with a zero Balance and the given Overdraft Limit. */
   AccountId openCustomerAccount(CustomerId owner, String name, Money overdraftLimit);
 

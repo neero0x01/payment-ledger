@@ -36,6 +36,20 @@ class JdbcAccounts implements Accounts {
   }
 
   @Override
+  public CustomerId registerDemoCustomer(String displayName) {
+    UUID id =
+        jdbc.sql(
+                """
+                insert into customer (display_name, demo) values (:displayName, true)
+                returning id
+                """)
+            .param("displayName", displayName)
+            .query(UUID.class)
+            .single();
+    return new CustomerId(id);
+  }
+
+  @Override
   public AccountId openCustomerAccount(CustomerId owner, String name, Money overdraftLimit) {
     UUID id =
         jdbc.sql(
