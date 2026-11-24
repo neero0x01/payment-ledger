@@ -81,9 +81,10 @@ services:
       dockerfile: ledger/Dockerfile
     environment:
       <<: *java-memory
-      # The local profile opens two funded Customer Accounts with a known login; production
-      # sets LEDGER_PROFILES to empty.
-      SPRING_PROFILES_ACTIVE: ${LEDGER_PROFILES-local}
+      # No profile unless LEDGER_PROFILES names one, so a deploy never opens the local Accounts by
+      # accident. LEDGER_PROFILES=local opens two funded Customer Accounts with a known login, for
+      # running the stack on a laptop and for the smoke test.
+      SPRING_PROFILES_ACTIVE: ${LEDGER_PROFILES:-}
       LEDGER_DB_URL: jdbc:postgresql://postgres:5432/ledger
       LEDGER_DB_USER: ledger
       LEDGER_DB_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
