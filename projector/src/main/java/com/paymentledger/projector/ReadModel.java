@@ -56,7 +56,8 @@ class ReadModel {
         .param("occurredAt", event.occurredAt().atOffset(ZoneOffset.UTC))
         .param("type", payment.type())
         .param("status", payment.status())
-        .param("rejectionReason", payment.rejectionReason() == null ? "" : payment.rejectionReason())
+        .param(
+            "rejectionReason", payment.rejectionReason() == null ? "" : payment.rejectionReason())
         .param("amountPence", payment.amountPence())
         .update();
   }
