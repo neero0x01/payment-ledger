@@ -203,13 +203,13 @@ test("the Statement says it is updating while it trails the latest Payment", asy
     trailing: true,
   });
   const user = userEvent.setup();
-  renderApp("/transfer");
+  renderApp("/payments/new");
   await logIn(user);
   await user.selectOptions(await screen.findByLabelText("From"), "Account A");
   await user.selectOptions(screen.getByLabelText("To"), "Account B");
   await user.type(screen.getByLabelText("Amount (£)"), "20.00");
-  await user.click(screen.getByRole("button", { name: "Transfer" }));
-  await screen.findByText(/is COMPLETED/);
+  await user.click(screen.getByRole("button", { name: "Pay" }));
+  await screen.findByText("Completed");
 
   await user.click(screen.getByRole("link", { name: "Accounts" }));
   await user.click(await screen.findByRole("link", { name: "Account A" }));

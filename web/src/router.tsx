@@ -15,10 +15,10 @@ import { AccountDetailScreen } from "./AccountDetailScreen";
 import { validateAccountSearch } from "./accountSearch";
 import { AccountsScreen } from "./AccountsScreen";
 import { App } from "./App";
+import { NewPaymentScreen } from "./NewPaymentScreen";
 import { PaymentScreen } from "./PaymentScreen";
 import { theme } from "./theme";
 import { TransactionScreen } from "./TransactionScreen";
-import { TransferPage } from "./TransferPage";
 
 const rootRoute = createRootRoute({ component: App });
 
@@ -55,10 +55,10 @@ const paymentRoute = createRoute({
   component: PaymentScreen,
 });
 
-const transferRoute = createRoute({
+const newPaymentRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/transfer",
-  component: TransferPage,
+  path: "/payments/new",
+  component: NewPaymentScreen,
 });
 
 const routeTree = rootRoute.addChildren([
@@ -67,7 +67,7 @@ const routeTree = rootRoute.addChildren([
   accountRoute,
   transactionRoute,
   paymentRoute,
-  transferRoute,
+  newPaymentRoute,
 ]);
 
 export function createAppRouter(history?: RouterHistory) {

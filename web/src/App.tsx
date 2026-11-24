@@ -33,8 +33,8 @@ export function App() {
           <Button color="inherit" component={Link} to="/accounts">
             Accounts
           </Button>
-          <Button color="inherit" component={Link} to="/transfer">
-            Transfer
+          <Button color="inherit" component={Link} to="/payments/new">
+            New Payment
           </Button>
         </Toolbar>
       </AppBar>
