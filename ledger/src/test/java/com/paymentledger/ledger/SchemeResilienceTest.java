@@ -85,6 +85,28 @@ class SchemeResilienceTest {
     assertThat(scheme.submissionsTo(payeeAccountNumber)).hasSize(1);
   }
 
+  @Test
+  void faster_payment_with_no_outcome_by_the_deadline_stays_pending_flagged_as_a_stuck_payment()
+      throws InterruptedException {
+    PaymentView pending = makeFasterPayment(40_00);
+    assertThat(pending.stuck()).isFalse();
+
+    await()
+        .atMost(Duration.ofSeconds(15))
+        .until(() -> payment(pending.id()).stuck(), Boolean.TRUE::equals);
+
+    PaymentView stuck = payment(pending.id());
+    assertThat(stuck.status()).isEqualTo("PENDING");
+    // Never reversed automatically: the money may already have left.
+    assertThat(stuck.transactionIds()).isEqualTo(pending.transactionIds());
+    assertThat(balancePenceOf(a)).isEqualTo(60_00);
+    assertThat(SchemeGauges.stuckPayments(operator)).isGreaterThanOrEqualTo(1);
+    // A Stuck Payment waits for an Operator, and is no longer sent.
+    int sent = scheme.submissionsTo(payeeAccountNumber).size();
+    Thread.sleep(2_500);
+    assertThat(scheme.submissionsTo(payeeAccountNumber)).hasSize(sent);
+  }
+
   PaymentView makeFasterPayment(long amountPence) {
     PaymentView payment =
         customer
