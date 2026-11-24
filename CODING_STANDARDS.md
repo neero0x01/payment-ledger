@@ -20,7 +20,7 @@ These are judgement calls for code review. Formatting, type checks and bans that
 11. **Write SQL by hand and keep it readable.** One statement per method, a text block when it spans several lines, named parameters, and no SQL assembled by string concatenation. _Why:_ the SQL that ships is the SQL we EXPLAIN.
 12. **Put business outcomes in the result.** Insufficient Funds or Scheme Rejected is a Rejected Payment, not an exception. Use exceptions for broken requests and broken invariants. _Why:_ rejections are stored and replayed (ADR 0007).
 13. **Return API errors as RFC 9457 problem details** with a stable `type` URI from the shared catalogue. Don't send ad-hoc error bodies. _Why:_ clients and tests branch on `type`.
-14. **Talk to other modules only through their public API.** No reaching into another module's internals or tables, even when Modulith can't see it. For example, `views` only reads `readmodel`. _Why:_ ADR 0002.
+14. **Talk to other modules only through their public API.** No reaching into another module's internals or tables, even when Modulith can't see it. For example, `views` reads the `readmodel` database, and other modules only through their public APIs (ADR 0012). _Why:_ ADR 0002.
 
 ## TypeScript / React
 

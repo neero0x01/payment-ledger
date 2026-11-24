@@ -138,7 +138,7 @@ The estimate is about 2 working weeks. If time runs short, the first thing cut i
 
 ```
 web (Cloudflare Pages) ──HTTPS──▶ Caddy (EC2) ──▶ ledger API (modular monolith)
-                                                   │  posting / payments / accounts / outbox / views
+                                                   │  posting / payments / accounts / outbox / views / demo
                                                    │        │ outbox rows (same DB transaction)
                                          Postgres: ledger ──┘        │ polling publisher
                                                    ▲                 ▼
@@ -165,13 +165,14 @@ web (Cloudflare Pages) ──HTTPS──▶ Caddy (EC2) ──▶ ledger API (mo
 
 | Module | Owns | Depends on |
 |---|---|---|
-| `accounts` | Customers; Customer and Internal Accounts; sort codes; Overdraft Limits; Demo Sandbox creation | `posting` (for sandbox funding) |
+| `accounts` | Customers; Customer and Internal Accounts; sort codes; Overdraft Limits; logins | – |
 | `posting` | Transactions, Entries, balance rows, locking, funds check, Reversals, Corrections, As-At Balance, partition maintenance, the balanced check | `accounts` (read-only), `outbox` |
-| `payments` | The Payment lifecycle, idempotency, the `PaymentScheme` port with its HTTP adapter, the scheme dispatcher, the callback endpoint | `posting`, `accounts`, `outbox` |
-| `outbox` | The outbox table API (`append`) and the polling publisher | – |
-| `views` | Read endpoints backed by the `readmodel` database | – |
+| `payments` | The Payment lifecycle, idempotency, the `PaymentScheme` port with its HTTP adapter, the scheme dispatcher, the callback endpoint, Stuck Payments | `posting`, `accounts`, `outbox` |
+| `outbox` | The outbox table API (`append`), the polling publisher and the outbox lag | – |
+| `views` | Read endpoints backed by the `readmodel` database, and the Operator dashboard | `accounts` (who may see what), and the public APIs of `payments` (Stuck Payments), `outbox` (lag and newest events) and `posting` (balanced check, `ReadModelBalances` port) for the dashboard (ADR 0012) |
+| `demo` | The public demo: Demo Sandbox creation and funding, demo sessions and their abuse limits | `accounts`, `posting` |
 
-The Spring Modulith `ApplicationModules.verify()` test runs in CI.
+`shared` holds the value types every module speaks in, the problem catalogue and the one wall `Clock`. The Spring Modulith `ApplicationModules.verify()` test runs in CI.
 
 ### Events (Kafka)
 
@@ -309,6 +310,7 @@ The M1 transfer page is bare and unstyled. Tests are Vitest for components plus 
 - **Synthetic identities:** names from Datafaker with a fixed seed. Sort codes come from one range documented as fictional.
 - **Built with the domain Transaction aggregate**, so every seeded Transaction balances. The generator computes `balance_after` and funds checks in memory, then bulk-loads Entries, Transactions and outbox rows with `COPY`. The publisher then drains the outbox into Kafka. This doubles as a throughput demo and is how the Read Model gets the seeded history.
 - **Seed is the only path allowed to set a past `booked_at`.** Those rows are marked `source=SEED`.
+- **No PaymentStatusChanged events for seeded Payments.** The seed loads each Payment directly in its final status and appends only `TransactionPosted` outbox rows. This is a deliberate exception to story 45: a seeded Payment never changed status inside the ledger, so there is no change to record. The Read Model's Payment figures (the dashboard's outcomes and Rejection Reasons) therefore count only live Payments.
 
 ## 11. Non-functional targets
 
