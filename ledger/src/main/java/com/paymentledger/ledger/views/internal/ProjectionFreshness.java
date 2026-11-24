@@ -21,7 +21,6 @@ import org.springframework.stereotype.Component;
 @Component
 class ProjectionFreshness implements MeterBinder {
 
-  static final String GAUGE = "ledger.projection.freshness";
   private static final int EVENTS_CHECKED = 1_000;
 
   private final Outbox outbox;
@@ -34,13 +33,17 @@ class ProjectionFreshness implements MeterBinder {
 
   @Override
   public void bindTo(MeterRegistry registry) {
-    Gauge.builder(GAUGE, this, freshness -> freshness.trailing().toMillis() / 1000.0)
+    Gauge.builder(
+            "ledger.projection.freshness",
+            this,
+            freshness -> freshness.trailing().toMillis() / 1000.0)
         .description("How far the Read Model trails the ledger")
         .baseUnit("seconds")
         .register(registry);
   }
 
-  private Duration trailing() {
+  /** How far the Read Model trails the ledger now. */
+  Duration trailing() {
     List<AppendedEvent> newest = outbox.newest(EVENTS_CHECKED);
     Set<EventId> applied = readModel.applied(newest.stream().map(AppendedEvent::eventId).toList());
     return newest.stream()

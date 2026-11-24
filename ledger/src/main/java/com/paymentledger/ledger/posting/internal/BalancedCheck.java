@@ -1,5 +1,7 @@
 package com.paymentledger.ledger.posting.internal;
 
+import com.paymentledger.ledger.posting.BalancedCheckResult;
+import com.paymentledger.ledger.posting.BalancedChecks;
 import com.paymentledger.ledger.posting.ReadModelBalance;
 import com.paymentledger.ledger.posting.ReadModelBalances;
 import com.paymentledger.ledger.shared.AccountId;
@@ -17,6 +19,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -43,7 +46,7 @@ import org.springframework.stereotype.Component;
  * write side.
  */
 @Component
-class BalancedCheck implements MeterBinder {
+class BalancedCheck implements MeterBinder, BalancedChecks {
 
   private static final Logger log = LoggerFactory.getLogger(BalancedCheck.class);
 
@@ -84,6 +87,17 @@ class BalancedCheck implements MeterBinder {
         .description("When the last balanced check started")
         .baseUnit("seconds")
         .register(registry);
+  }
+
+  @Override
+  public Optional<BalancedCheckResult> last() {
+    Result result = last;
+    if (result == Result.NOT_RUN) {
+      return Optional.empty();
+    }
+    return Optional.of(
+        new BalancedCheckResult(
+            result.balanced() == 1, Money.ofPence(result.imbalancePence()), result.startedAt()));
   }
 
   /** Checks the Accounts touched since the last run; the first run checks every Account. */

@@ -15,6 +15,11 @@ class JdbcStuckPayments implements StuckPayments {
   }
 
   @Override
+  public long count() {
+    return payments.countStuckPayments();
+  }
+
+  @Override
   public List<StuckPayment> oldest(int limit) {
     return payments.oldestStuckPayments(limit);
   }

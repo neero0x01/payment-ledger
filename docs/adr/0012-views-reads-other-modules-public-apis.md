@@ -2,9 +2,9 @@
 
 ADR 0002 and spec §5 drew `views` as depending on nothing but the `readmodel` database, and CODING_STANDARDS rule 14 gave "`views` only reads `readmodel`" as its example. The Operator dashboard (spec §9, screen 4) changed that. Besides the Read Model's figures it shows live write-side health that the Read Model cannot hold:
 
-- the Stuck Payments, from `payments` (`StuckPayments`)
-- the outbox lag, and the newest events the Projection Freshness compares against, from `outbox` (`Outbox`)
-- the last balanced check's result, from `posting`
+- the Stuck Payments and their count, from `payments` (`StuckPayments`)
+- the outbox lag, and the newest events the Projection Freshness compares against, from `outbox` (`Outbox.lag()` and `Outbox.newest`)
+- the last balanced check's result, from `posting` (`BalancedChecks.last()`)
 
 So `views` now reads those modules, always through their public APIs and never their tables or internals (rule 14 still holds). It also asks `accounts` which Accounts a Principal may see, and serves Read Model Balances to the balanced check through posting's `ReadModelBalances` port. None of these modules depends on `views`, so there is no cycle, and Spring Modulith's `verify()` checks it.
 

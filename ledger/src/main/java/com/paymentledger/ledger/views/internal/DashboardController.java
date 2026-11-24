@@ -1,11 +1,13 @@
 package com.paymentledger.ledger.views.internal;
 
+import com.paymentledger.ledger.outbox.Outbox;
+import com.paymentledger.ledger.outbox.OutboxLag;
 import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.payments.StuckPayment;
 import com.paymentledger.ledger.payments.StuckPayments;
+import com.paymentledger.ledger.posting.BalancedCheckResult;
+import com.paymentledger.ledger.posting.BalancedChecks;
 import com.paymentledger.ledger.views.internal.JdbcReadModel.PaymentFigures;
-import io.micrometer.core.instrument.Gauge;
-import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -14,15 +16,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.UUID;
+import java.util.function.Supplier;
 import org.jspecify.annotations.Nullable;
+import org.springframework.dao.DataAccessException;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
  * The Operator dashboard: live system health. Payments per second, outcomes and Rejection Reasons
  * come from the Read Model's per-minute figures: the rate over the last full minute, the outcomes
- * and Rejection Reasons over the last hour up to now. The outbox lag, the balanced check and the
- * Stuck Payment count come from their gauges, with the oldest Stuck Payments listed.
+ * and Rejection Reasons over the last hour up to now. The outbox lag, the Projection Freshness, the
+ * balanced check and the Stuck Payments come from the public APIs of the modules that own them (ADR
+ * 0012). A figure whose database can't be read is null.
  */
 @RestController
 class DashboardController {
@@ -32,15 +37,24 @@ class DashboardController {
   private static final int STUCK_PAYMENTS_LISTED = 100;
 
   private final JdbcReadModel readModel;
+  private final ProjectionFreshness freshness;
   private final Clock clock;
-  private final MeterRegistry gauges;
+  private final Outbox outbox;
+  private final BalancedChecks balancedChecks;
   private final StuckPayments stuckPayments;
 
   DashboardController(
-      JdbcReadModel readModel, Clock clock, MeterRegistry gauges, StuckPayments stuckPayments) {
+      JdbcReadModel readModel,
+      ProjectionFreshness freshness,
+      Clock clock,
+      Outbox outbox,
+      BalancedChecks balancedChecks,
+      StuckPayments stuckPayments) {
     this.readModel = readModel;
+    this.freshness = freshness;
     this.clock = clock;
-    this.gauges = gauges;
+    this.outbox = outbox;
+    this.balancedChecks = balancedChecks;
     this.stuckPayments = stuckPayments;
   }
 
@@ -56,55 +70,56 @@ class DashboardController {
         figures.madeInMinute() / SECONDS_PER_MINUTE,
         new Outcomes(figures.completed(), figures.rejected()),
         rejectionReasons,
-        new OutboxLag(count("ledger.outbox.unpublished"), reading("ledger.outbox.oldest.age")),
-        reading(ProjectionFreshness.GAUGE),
+        outboxLag(),
+        readable(() -> seconds(freshness.trailing())),
         balancedCheck(),
-        count("ledger.payments.stuck"),
+        readable(stuckPayments::count),
         stuckPayments.oldest(STUCK_PAYMENTS_LISTED).stream()
             .map(StuckPaymentResponse::of)
             .toList());
   }
 
+  private OutboxLagResponse outboxLag() {
+    OutboxLag lag = readable(outbox::lag);
+    return lag == null
+        ? new OutboxLagResponse(null, null)
+        : new OutboxLagResponse(lag.unpublished(), seconds(lag.oldestAge()));
+  }
+
   /** The last balanced check's result, or nulls before its first run. */
   private BalancedCheck balancedCheck() {
-    double balanced = gauge("ledger.balanced");
-    if (Double.isNaN(balanced)) {
-      return new BalancedCheck(null, null, null);
+    return balancedChecks
+        .last()
+        .map(DashboardController::balancedCheck)
+        .orElse(new BalancedCheck(null, null, null));
+  }
+
+  private static BalancedCheck balancedCheck(BalancedCheckResult result) {
+    return new BalancedCheck(result.balanced(), result.imbalance().pence(), result.startedAt());
+  }
+
+  /** The figure, or null when its database can't be read. */
+  private static <T> @Nullable T readable(Supplier<T> figure) {
+    try {
+      return figure.get();
+    } catch (DataAccessException unreadable) {
+      return null;
     }
-    double lastRun = gauge("ledger.balanced.last.run");
-    return new BalancedCheck(
-        balanced == 1,
-        (long) gauge("ledger.imbalance.pence"),
-        Instant.ofEpochSecond(0, Math.round(lastRun * 1e9)));
   }
 
-  /** The gauge's reading now, or null when it has none, as when its database can't be read. */
-  private @Nullable Double reading(String name) {
-    double value = gauge(name);
-    return Double.isNaN(value) ? null : value;
-  }
-
-  /** {@link #reading} of a gauge that counts. */
-  private @Nullable Long count(String name) {
-    Double value = reading(name);
-    return value == null ? null : value.longValue();
-  }
-
-  /** The gauge's value now, or NaN if nothing has registered it. */
-  private double gauge(String name) {
-    Gauge gauge = gauges.find(name).gauge();
-    return gauge == null ? Double.NaN : gauge.value();
+  private static double seconds(Duration duration) {
+    return duration.toNanos() / 1e9;
   }
 
   /**
    * The dashboard. rejectionReasons counts the Payments Rejected over the last hour by each {@link
-   * RejectionReason}. A gauge with no reading, as when its database can't be read, is null.
+   * RejectionReason}. A figure whose database can't be read is null.
    */
   record DashboardResponse(
       double paymentsPerSecond,
       Outcomes outcomes,
       Map<String, Long> rejectionReasons,
-      OutboxLag outboxLag,
+      OutboxLagResponse outboxLag,
       @Nullable Double projectionFreshnessSeconds,
       BalancedCheck balancedCheck,
       @Nullable Long stuckPaymentCount,
@@ -133,7 +148,7 @@ class DashboardController {
   }
 
   /** How many events wait to be published to Kafka, and how long the oldest has waited. */
-  record OutboxLag(@Nullable Long unpublished, @Nullable Double oldestAgeSeconds) {}
+  record OutboxLagResponse(@Nullable Long unpublished, @Nullable Double oldestAgeSeconds) {}
 
   /**
    * Whether the last balanced check found a Balanced Ledger, the drift it found, and when it
