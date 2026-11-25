@@ -128,8 +128,9 @@ class JdbcAccounts implements Accounts {
       return Map.of();
     }
     return jdbc
-        .sql("select id, normal_side from account where id in (:ids)")
-        .param("ids", accounts.stream().map(AccountId::value).toList())
+        .sql("select id, normal_side from account where id = any(:ids)")
+        // One array parameter, so the nightly sweep's every Account fits in one statement.
+        .param("ids", accounts.stream().map(AccountId::value).toArray(UUID[]::new))
         .query((rs, rowNum) ->
             Map.entry(
                 new AccountId(rs.getObject("id", UUID.class)),

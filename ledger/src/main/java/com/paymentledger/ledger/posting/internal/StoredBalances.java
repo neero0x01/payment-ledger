@@ -71,10 +71,10 @@ class StoredBalances {
                                          else -e.amount_pence end), 0) as debits_minus_credits
                 from account_balance b
                 left join entry e on e.account_id = b.account_id
-                where b.account_id in (:accountIds)
+                where b.account_id = any(:accountIds)
                 group by b.account_id, b.balance_pence
                 """)
-            .param("accountIds", accountIds.stream().map(AccountId::value).toList())
+            .param("accountIds", accountIds.stream().map(AccountId::value).toArray(UUID[]::new))
             .query(StoredBalances::sums)
             .list();
     return driftsIn(sums);
