@@ -2,16 +2,15 @@ import { Alert, List, ListItem, Stack, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
 import { getRouteApi } from "@tanstack/react-router";
 import { formatPence } from "./money";
-import { PAYMENT_STATUS, rejectionReason } from "./paymentStatus";
-import { paymentQuery } from "./transactionApi";
+import {
+  PAYMENT_STATUS,
+  PAYMENT_TYPE,
+  paymentQuery,
+  rejectionReason,
+} from "./payments";
 import { TransactionLink } from "./TransactionLink";
 
 const route = getRouteApi("/payments/$paymentId");
-
-const PAYMENT_TYPE = {
-  INTERNAL_TRANSFER: "Internal Transfer",
-  FASTER_PAYMENT: "Faster Payment",
-} as const;
 
 /** One Payment as the ledger has it now, with the Transactions it led to. */
 export function PaymentScreen() {

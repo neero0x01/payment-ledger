@@ -1,4 +1,4 @@
-import type { Payment, PaymentRequest } from "./ledgerApi";
+import type { Payment, PaymentRequest } from "./payments";
 import { parsePounds } from "./money";
 
 /** What the Customer has typed into the New Payment form. */

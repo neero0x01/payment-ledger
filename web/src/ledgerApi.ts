@@ -1,32 +1,10 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
+import type { RejectionReason } from "./payments";
 
 /** Live views poll the ledger this often. */
 export const POLL_INTERVAL_MS = 2_000;
 
 export type Balance = { accountId: string; balancePence: number };
-
-/** Who a Payment pays: an Account at the fintech, or an account at another UK bank. */
-export type Payee =
-  | { accountId: string }
-  | { sortCode: string; accountNumber: string; name: string };
-
-export type PaymentRequest = {
-  debtorAccountId: string;
-  payee: Payee;
-  amountPence: number;
-};
-
-export type PaymentStatus = "PENDING" | "COMPLETED" | "REJECTED";
-
-export type RejectionReason = "INSUFFICIENT_FUNDS" | "SCHEME_REJECTED";
-
-export type Payment = {
-  id: string;
-  type: "INTERNAL_TRANSFER" | "FASTER_PAYMENT";
-  status: PaymentStatus;
-  rejectionReason: RejectionReason | null;
-  schemeReasonCode: string | null;
-};
 
 export type Session = { role: "CUSTOMER" | "OPERATOR" };
 
@@ -76,24 +54,6 @@ export async function startDemoSession(role: Session["role"]) {
     body: JSON.stringify({ role }),
   });
   if (!response.ok) throw await problemOf(response);
-}
-
-/** Makes a Payment. The Idempotency-Key belongs to one user submission, and every retry reuses it. */
-export async function makePayment(
-  payment: PaymentRequest,
-  idempotencyKey: string,
-): Promise<Payment> {
-  const response = await fetch("/v1/payments", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": idempotencyKey,
-      ...csrfHeader(),
-    },
-    body: JSON.stringify(payment),
-  });
-  if (!response.ok) throw await problemOf(response);
-  return response.json();
 }
 
 /** A request the ledger refused with an RFC 9457 problem, such as a validation failure. */
@@ -254,13 +214,4 @@ export const dashboardQuery = () =>
     queryKey: ["dashboard"],
     queryFn: () => getJson<Dashboard>("/v1/dashboard", "Dashboard"),
     refetchInterval: POLL_INTERVAL_MS,
-  });
-
-/** A Payment as it stands now, polled while it is Pending; Completed and Rejected are final. */
-export const paymentQuery = (paymentId: string) =>
-  queryOptions({
-    queryKey: ["payments", paymentId],
-    queryFn: () => getJson<Payment>(`/v1/payments/${paymentId}`, "Payment"),
-    refetchInterval: (query) =>
-      query.state.data?.status === "PENDING" ? POLL_INTERVAL_MS : false,
   });
