@@ -15,21 +15,21 @@ import {
 } from "@mui/material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useId, useRef, useState } from "react";
-import {
-  accountsQuery,
-  makePayment,
-  type Payment,
-  type PaymentRequest,
-  paymentQuery,
-  ProblemError,
-} from "./ledgerApi";
+import { accountsQuery, ProblemError } from "./ledgerApi";
 import {
   EMPTY_FORM,
   type NewPaymentForm,
   problemsFromLedger,
   validate,
 } from "./newPaymentForm";
-import { PAYMENT_STATUS, rejectionReason } from "./paymentStatus";
+import {
+  makePayment,
+  PAYMENT_STATUS,
+  PAYMENT_STATUS_COLOR,
+  type PaymentRequest,
+  paymentQuery,
+  rejectionReason,
+} from "./payments";
 import { useSubmissionKey } from "./submissionKey";
 
 /** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
@@ -192,13 +192,6 @@ export function NewPaymentScreen() {
   );
 }
 
-const STATUS_COLOR: Record<Payment["status"], "warning" | "success" | "error"> =
-  {
-    PENDING: "warning",
-    COMPLETED: "success",
-    REJECTED: "error",
-  };
-
 /** The Payment's live Payment Status, polled until it is final. */
 function PaymentStatus({ paymentId }: { paymentId: string }) {
   const heading = useId();
@@ -213,7 +206,7 @@ function PaymentStatus({ paymentId }: { paymentId: string }) {
           <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
             <Chip
               label={PAYMENT_STATUS[payment.data.status]}
-              color={STATUS_COLOR[payment.data.status]}
+              color={PAYMENT_STATUS_COLOR[payment.data.status]}
             />
             {payment.data.status === "REJECTED" && (
               <Typography>{rejectionReason(payment.data)}</Typography>

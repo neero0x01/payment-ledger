@@ -1,11 +1,5 @@
 import { queryOptions } from "@tanstack/react-query";
-import {
-  csrfHeader,
-  getJson,
-  type Payment,
-  POLL_INTERVAL_MS,
-  problemOf,
-} from "./ledgerApi";
+import { csrfHeader, getJson, problemOf } from "./ledgerApi";
 
 export type TransactionKind = "PAYMENT" | "REVERSAL" | "FUNDING" | "CORRECTION";
 
@@ -40,33 +34,11 @@ export type Transaction = {
   correctedByTransactionIds: string[];
 };
 
-/** A Payment as the ledger has it now, with the Transactions it led to, oldest first. */
-export type PaymentDetail = Payment & {
-  debtorAccountId: string;
-  payee: {
-    accountId: string | null;
-    sortCode: string | null;
-    accountNumber: string | null;
-    name: string | null;
-  };
-  amountPence: number;
-  transactionIds: string[];
-};
-
 export const transactionQuery = (transactionId: string) =>
   queryOptions({
     queryKey: ["transactions", transactionId],
     queryFn: () =>
       getJson<Transaction>(`/v1/transactions/${transactionId}`, "Transaction"),
-  });
-
-export const paymentQuery = (paymentId: string) =>
-  queryOptions({
-    queryKey: ["payments", paymentId],
-    queryFn: () =>
-      getJson<PaymentDetail>(`/v1/payments/${paymentId}`, "Payment"),
-    // A Pending Payment's status changes when the scheme decides.
-    refetchInterval: POLL_INTERVAL_MS,
   });
 
 /**
