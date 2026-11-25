@@ -12,8 +12,10 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
@@ -118,6 +120,23 @@ class JdbcAccounts implements Accounts {
         .param("id", id.value())
         .query(JdbcAccounts::account)
         .optional();
+  }
+
+  @Override
+  public Map<AccountId, Side> normalSidesOf(Collection<AccountId> accounts) {
+    if (accounts.isEmpty()) {
+      return Map.of();
+    }
+    return jdbc
+        .sql("select id, normal_side from account where id in (:ids)")
+        .param("ids", accounts.stream().map(AccountId::value).toList())
+        .query((rs, rowNum) ->
+            Map.entry(
+                new AccountId(rs.getObject("id", UUID.class)),
+                Side.valueOf(rs.getString("normal_side"))))
+        .list()
+        .stream()
+        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
   }
 
   @Override
