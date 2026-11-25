@@ -61,9 +61,9 @@ ledger:
     interval: PT60S
     # The full sweep, which checks every Account however long since anything touched it.
     full-sweep-cron: "0 0 2 * * *"
-    # How long the Read Model may trail an Account (Projection Freshness) before the check counts
-    # it as drift.
-    projection-freshness: PT60S
+    # How long the Read Model may leave an Account's Entry unapplied, from its Booking Time, before
+    # the check counts the Account as drift. Per Account, unlike the Projection Freshness gauge.
+    read-model-grace: PT60S
   partition-maintenance:
     # When the job creates Entry partitions three months ahead (ADR 0010): daily, in UTC. It also
     # runs when the ledger starts.

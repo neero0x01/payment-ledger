@@ -169,6 +169,23 @@ class SchemeResilienceTest {
   }
 
   @Test
+  void scheme_acceptance_after_rejection_is_ignored_and_counted_as_a_scheme_anomaly() {
+    PaymentView pending = makeFasterPayment(40_00);
+    EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();
+    callbacks.reject(endToEndId, "AC04").expectStatus().isOk();
+    long anomaliesBefore = SchemeGauges.schemeAnomalies(operator);
+
+    callbacks.accept(endToEndId).expectStatus().isOk();
+
+    PaymentView rejected = payment(pending.id());
+    assertThat(rejected.status()).isEqualTo("REJECTED");
+    // The Payment Transaction and its one Reversal; acceptance posts nothing more.
+    assertThat(rejected.transactionIds()).hasSize(2);
+    assertThat(balancePenceOf(a)).isEqualTo(100_00);
+    assertThat(SchemeGauges.schemeAnomalies(operator)).isEqualTo(anomaliesBefore + 1);
+  }
+
+  @Test
   void repeated_acceptance_is_not_a_scheme_anomaly() {
     makeFasterPayment(40_00);
     EndToEndId endToEndId = scheme.awaitSubmissionTo(payeeAccountNumber).submission().endToEndId();

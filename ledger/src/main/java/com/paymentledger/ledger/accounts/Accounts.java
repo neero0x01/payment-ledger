@@ -4,8 +4,10 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Principal;
+import com.paymentledger.ledger.shared.Side;
 import java.util.Collection;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /** Customers, their Customer Accounts and the Internal Accounts. */
@@ -32,6 +34,9 @@ public interface Accounts {
   AccountId fpsClearing();
 
   Optional<Account> find(AccountId id);
+
+  /** The Normal Side of each of the Accounts that exists. */
+  Map<AccountId, Side> normalSidesOf(Collection<AccountId> accounts);
 
   /**
    * Whether the Accounts include a Customer Account and every Customer Account among them is a

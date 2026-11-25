@@ -2,7 +2,6 @@ package com.paymentledger.ledger.payments.internal;
 
 import com.paymentledger.ledger.accounts.Account;
 import com.paymentledger.ledger.accounts.Accounts;
-import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.payments.EndToEndId;
 import com.paymentledger.ledger.payments.Payee;
 import com.paymentledger.ledger.payments.Payment;
@@ -29,7 +28,6 @@ import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
-import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -50,19 +48,19 @@ class PaymentService {
   private final PaymentRepository payments;
   private final Posting posting;
   private final Accounts accounts;
-  private final Outbox outbox;
+  private final PaymentLifecycle lifecycle;
   private final Counter schemeAnomalies;
 
   PaymentService(
       PaymentRepository payments,
       Posting posting,
       Accounts accounts,
-      Outbox outbox,
+      PaymentLifecycle lifecycle,
       MeterRegistry meters) {
     this.payments = payments;
     this.posting = posting;
     this.accounts = accounts;
-    this.outbox = outbox;
+    this.lifecycle = lifecycle;
     this.schemeAnomalies =
         Counter.builder("ledger.scheme.anomalies")
             .description("Scheme Outcomes that contradict the one already recorded")
@@ -106,19 +104,13 @@ class PaymentService {
     PaymentId id = inserted.get();
     Money balance = Objects.requireNonNull(posting.lockBalances(Set.of(debtor, payee)).get(debtor));
     if (!payer.canPayOut(amount, balance)) {
-      Instant rejectedAt = payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
-      Payment rejected = payments.find(id).orElseThrow();
-      outbox.append(PaymentStatusChangedEvent.of(rejected, rejectedAt));
-      return IdempotentOutcome.first(rejected);
+      return IdempotentOutcome.first(lifecycle.reject(id, RejectionReason.INSUFFICIENT_FUNDS));
     }
     posting.post(
         NewTransaction.forPayment(
             id,
             List.of(new Entry(debtor, Side.DEBIT, amount), new Entry(payee, Side.CREDIT, amount))));
-    Instant completedAt = payments.markCompleted(id);
-    Payment completed = payments.find(id).orElseThrow();
-    outbox.append(PaymentStatusChangedEvent.of(completed, completedAt));
-    return IdempotentOutcome.first(completed);
+    return IdempotentOutcome.first(lifecycle.complete(id));
   }
 
   /**
@@ -160,10 +152,7 @@ class PaymentService {
     Money balance =
         Objects.requireNonNull(posting.lockBalances(Set.of(debtor, fpsClearing)).get(debtor));
     if (!payer.canPayOut(amount, balance)) {
-      Instant rejectedAt = payments.markRejected(id, RejectionReason.INSUFFICIENT_FUNDS);
-      Payment rejected = payments.find(id).orElseThrow();
-      outbox.append(PaymentStatusChangedEvent.of(rejected, rejectedAt));
-      return IdempotentOutcome.first(rejected);
+      return IdempotentOutcome.first(lifecycle.reject(id, RejectionReason.INSUFFICIENT_FUNDS));
     }
     posting.post(
         NewTransaction.forPayment(
@@ -171,9 +160,7 @@ class PaymentService {
             List.of(
                 new Entry(debtor, Side.DEBIT, amount),
                 new Entry(fpsClearing, Side.CREDIT, amount))));
-    Payment pending = payments.find(id).orElseThrow();
-    outbox.append(PaymentStatusChangedEvent.of(pending, inserted.get().createdAt()));
-    return IdempotentOutcome.first(pending);
+    return IdempotentOutcome.first(lifecycle.announcePending(id, inserted.get().createdAt()));
   }
 
   /**
@@ -204,24 +191,20 @@ class PaymentService {
       }
       return;
     }
-    Instant changedAt =
-        switch (outcome.status()) {
-          case ACSC -> payments.markCompleted(payment.id());
-          case RJCT -> rejectAndReverse(payment, outcome.rejection().orElseThrow());
-        };
-    outbox.append(
-        PaymentStatusChangedEvent.of(payments.find(payment.id()).orElseThrow(), changedAt));
+    switch (outcome.status()) {
+      case ACSC -> lifecycle.complete(payment.id());
+      case RJCT -> rejectAndReverse(payment, outcome.rejection().orElseThrow());
+    }
   }
 
   /**
    * Rejects the Faster Payment for the Scheme Rejection and posts the Reversal of its Transaction,
-   * which returns the money from FPS Clearing to the payer. Returns when it was Rejected.
+   * which returns the money from FPS Clearing to the payer.
    */
-  private Instant rejectAndReverse(Payment payment, SchemeReasonCode reasonCode) {
-    Instant rejectedAt = payments.markSchemeRejected(payment.id(), reasonCode);
+  private void rejectAndReverse(Payment payment, SchemeReasonCode reasonCode) {
+    lifecycle.schemeReject(payment.id(), reasonCode);
     TransactionId original = posting.transactionsOf(payment.id()).getFirst();
     posting.post(NewTransaction.reversal(posting.find(original).orElseThrow()));
-    return rejectedAt;
   }
 
   /** Whether the Scheme Outcome disagrees with the one already recorded for the Payment. */
