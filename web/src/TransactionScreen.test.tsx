@@ -1,11 +1,11 @@
 import { screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
-import { installFakeLedger } from "./fakeLedger";
 import {
   type FakePayment,
   type FakeTransaction,
-  fakeTransactions,
-} from "./fakeTransactions";
+  funded,
+  installFakeLedger,
+} from "./fakeLedger";
 import { ACCOUNT_A, ACCOUNT_B } from "./localAccounts";
 import { logIn, renderApp } from "./renderApp";
 
@@ -41,13 +41,11 @@ const PAID_B: FakeTransaction = {
       accountId: ACCOUNT_A.id,
       side: "DEBIT",
       amountPence: 30_00,
-      balanceAfterPence: 70_00,
     },
     {
       accountId: ACCOUNT_B.id,
       side: "CREDIT",
       amountPence: 30_00,
-      balanceAfterPence: 30_00,
     },
   ],
 };
@@ -62,31 +60,20 @@ function installLedger({
   /** The first Correction request fails with 503 before reaching the ledger. */
   unavailableForFirstCorrection?: boolean;
 } = {}) {
-  const writeSide = fakeTransactions({
-    transactions,
-    payments,
-    correctionsAccountId: CORRECTIONS.id,
-  });
   let unavailable = unavailableForFirstCorrection;
   return installFakeLedger({
     accounts,
-    // The Read Model's Statement Lines are the same Entries.
-    entries: transactions.flatMap((t) =>
-      t.entries.map((e) => ({
-        accountId: e.accountId,
-        bookingTime: t.bookingTime,
-        side: e.side,
-        amountPence: e.amountPence,
-        transactionId: t.id,
-      })),
-    ),
+    // A has £100.00 before it pays B.
+    entries: funded({ [ACCOUNT_A.id]: 100_00 }),
+    transactions,
+    payments,
     role: "OPERATOR",
     routes: (request) => {
       if (unavailable && request.path === "/v1/corrections") {
         unavailable = false;
         return new Response(null, { status: 503 });
       }
-      return writeSide.routes(request);
+      return undefined;
     },
   });
 }
@@ -142,13 +129,11 @@ const REVERSAL: FakeTransaction = {
       accountId: ACCOUNT_A.id,
       side: "CREDIT",
       amountPence: 30_00,
-      balanceAfterPence: 100_00,
     },
     {
       accountId: ACCOUNT_B.id,
       side: "DEBIT",
       amountPence: 30_00,
-      balanceAfterPence: 0,
     },
   ],
 };
@@ -213,13 +198,11 @@ test("a Transaction lists every Correction of it, and an Adjustment links back",
         accountId: CORRECTIONS.id,
         side: "DEBIT",
         amountPence: 5_00,
-        balanceAfterPence: 5_00,
       },
       {
         accountId: ACCOUNT_A.id,
         side: "CREDIT",
         amountPence: 5_00,
-        balanceAfterPence: 75_00,
       },
     ],
   };
@@ -305,6 +288,21 @@ test("an Operator posts a Reversing Correction of a Transaction", async () => {
   });
   expect(post?.headers.get("Idempotency-Key")).toBeTruthy();
   expect(post?.headers.get("X-XSRF-TOKEN")).toBe("csrf-after-login");
+});
+
+test("a Reversing Correction moves the Balances the Accounts show", async () => {
+  installLedger();
+  const user = userEvent.setup();
+  renderApp(`/transactions/${PAID_B.id}`);
+  await logIn(user);
+  await postReversingCorrection(user);
+  await reversedByLink();
+
+  await user.click(screen.getByRole("link", { name: "Accounts" }));
+
+  expect(
+    await screen.findByRole("row", { name: /^Account A £100\.00/ }),
+  ).toBeInTheDocument();
 });
 
 test("reversing an already-reversed Transaction says it is already reversed", async () => {
