@@ -236,53 +236,6 @@ class PaymentRepository implements StuckPayments, PendingPayments {
         .orElse(false);
   }
 
-  /** Marks the Payment Completed and returns when it was. */
-  Instant markCompleted(PaymentId id) {
-    return jdbc.sql(
-            """
-            update payment
-            set status = 'COMPLETED', completed_at = clock_timestamp()
-            where id = :id
-            returning completed_at
-            """)
-        .param("id", id.value())
-        .query((rs, rowNum) -> rs.getObject("completed_at", OffsetDateTime.class).toInstant())
-        .single();
-  }
-
-  /** Marks the Payment Rejected for the reason given and returns when it was. */
-  Instant markRejected(PaymentId id, RejectionReason reason) {
-    return jdbc.sql(
-            """
-            update payment
-            set status = 'REJECTED', rejection_reason = :reason
-            where id = :id
-            returning clock_timestamp() as rejected_at
-            """)
-        .param("id", id.value())
-        .param("reason", reason.name())
-        .query((rs, rowNum) -> rs.getObject("rejected_at", OffsetDateTime.class).toInstant())
-        .single();
-  }
-
-  /**
-   * Marks the Payment Rejected by a Scheme Rejection with the reason code and returns when it was.
-   */
-  Instant markSchemeRejected(PaymentId id, SchemeReasonCode reasonCode) {
-    return jdbc.sql(
-            """
-            update payment
-            set status = 'REJECTED', rejection_reason = 'SCHEME_REJECTED',
-                scheme_reason_code = :reasonCode
-            where id = :id
-            returning clock_timestamp() as rejected_at
-            """)
-        .param("id", id.value())
-        .param("reasonCode", reasonCode.name())
-        .query((rs, rowNum) -> rs.getObject("rejected_at", OffsetDateTime.class).toInstant())
-        .single();
-  }
-
   Optional<Payment> find(PaymentId id) {
     return jdbc.sql(
             """
