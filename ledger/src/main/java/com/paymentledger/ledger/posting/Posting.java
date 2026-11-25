@@ -42,6 +42,15 @@ public interface Posting {
   /** Whether a Reversal or Reversing Correction of the Transaction has been posted. */
   boolean isReversed(TransactionId transaction);
 
+  /** The Reversal or Reversing Correction of the Transaction, or empty while it is not reversed. */
+  Optional<TransactionId> reversalOf(TransactionId transaction);
+
+  /**
+   * Every Correction of the Transaction, Reversing Corrections and Adjustments alike, in the order
+   * they were booked.
+   */
+  List<TransactionId> correctionsOf(TransactionId transaction);
+
   /** The Account's Balance on its Normal Side, or empty for an unknown Account. */
   Optional<Money> balanceOf(AccountId account);
 

@@ -15,8 +15,11 @@ import { AccountDetailScreen } from "./AccountDetailScreen";
 import { validateAccountSearch } from "./accountSearch";
 import { AccountsScreen } from "./AccountsScreen";
 import { App } from "./App";
+import { DashboardScreen } from "./DashboardScreen";
+import { NewPaymentScreen } from "./NewPaymentScreen";
+import { PaymentScreen } from "./PaymentScreen";
 import { theme } from "./theme";
-import { TransferPage } from "./TransferPage";
+import { TransactionScreen } from "./TransactionScreen";
 
 const rootRoute = createRootRoute({ component: App });
 
@@ -41,17 +44,38 @@ const accountRoute = createRoute({
   component: AccountDetailScreen,
 });
 
-const transferRoute = createRoute({
+const transactionRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/transfer",
-  component: TransferPage,
+  path: "/transactions/$transactionId",
+  component: TransactionScreen,
+});
+
+const paymentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/payments/$paymentId",
+  component: PaymentScreen,
+});
+
+const newPaymentRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/payments/new",
+  component: NewPaymentScreen,
+});
+
+const dashboardRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/dashboard",
+  component: DashboardScreen,
 });
 
 const routeTree = rootRoute.addChildren([
   indexRoute,
   accountsRoute,
   accountRoute,
-  transferRoute,
+  transactionRoute,
+  paymentRoute,
+  newPaymentRoute,
+  dashboardRoute,
 ]);
 
 export function createAppRouter(history?: RouterHistory) {

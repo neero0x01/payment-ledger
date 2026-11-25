@@ -138,7 +138,7 @@ The estimate is about 2 working weeks. If time runs short, the first thing cut i
 
 ```
 web (Cloudflare Pages) ──HTTPS──▶ Caddy (EC2) ──▶ ledger API (modular monolith)
-                                                   │  posting / payments / accounts / outbox / views
+                                                   │  posting / payments / accounts / outbox / views / demo
                                                    │        │ outbox rows (same DB transaction)
                                          Postgres: ledger ──┘        │ polling publisher
                                                    ▲                 ▼
@@ -165,13 +165,14 @@ web (Cloudflare Pages) ──HTTPS──▶ Caddy (EC2) ──▶ ledger API (mo
 
 | Module | Owns | Depends on |
 |---|---|---|
-| `accounts` | Customers; Customer and Internal Accounts; sort codes; Overdraft Limits; Demo Sandbox creation | `posting` (for sandbox funding) |
+| `accounts` | Customers; Customer and Internal Accounts; sort codes; Overdraft Limits; logins | – |
 | `posting` | Transactions, Entries, balance rows, locking, funds check, Reversals, Corrections, As-At Balance, partition maintenance, the balanced check | `accounts` (read-only), `outbox` |
-| `payments` | The Payment lifecycle, idempotency, the `PaymentScheme` port with its HTTP adapter, the scheme dispatcher, the callback endpoint | `posting`, `accounts`, `outbox` |
-| `outbox` | The outbox table API (`append`) and the polling publisher | – |
-| `views` | Read endpoints backed by the `readmodel` database | – |
+| `payments` | The Payment lifecycle, idempotency, the `PaymentScheme` port with its HTTP adapter, the scheme dispatcher, the callback endpoint, Stuck Payments | `posting`, `accounts`, `outbox` |
+| `outbox` | The outbox table API (`append`), the polling publisher and the outbox lag | – |
+| `views` | Read endpoints backed by the `readmodel` database, and the Operator dashboard | `accounts` (who may see what), and the public APIs of `payments` (Stuck Payments), `outbox` (lag and newest events) and `posting` (balanced check, `ReadModelBalances` port) for the dashboard (ADR 0012) |
+| `demo` | The public demo: Demo Sandbox creation and funding, demo sessions and their abuse limits | `accounts`, `posting` |
 
-The Spring Modulith `ApplicationModules.verify()` test runs in CI.
+`shared` holds the value types every module speaks in, the problem catalogue and the one wall `Clock`. The Spring Modulith `ApplicationModules.verify()` test runs in CI.
 
 ### Events (Kafka)
 
@@ -197,7 +198,7 @@ Every event is JSON in a shared envelope, with a JSON Schema in `docs/schemas/` 
   - It dedupes on End-to-End Id.
   - It stores outcomes in its own `fpssim` database.
 - **Outcome:** `POST /v1/scheme/callbacks` on the ledger with a slimmed-down pacs.002: End-to-End Id, status `ACSC` or `RJCT`, and a reason code (`AC01`, `AC04`, `AG01` or `MS03`). Callbacks are HMAC-SHA256 signed.
-- **Dispatcher:** polls Pending Faster Payments with no submission, or whose last attempt was more than 15 s ago. It marks a Payment as stuck after 5 min.
+- **Dispatcher:** polls Pending Faster Payments with no submission, or whose last attempt was more than 15 s ago. It marks a Payment as stuck after 5 min, and keeps re-sending a Stuck Payment with the same End-to-End Id once a minute until the scheme answers.
 - **Simulator settings** (environment variables, plus an admin endpoint):
   - accept/reject rate (default 95/5)
   - black-hole rate, where no outcome is ever sent (default 0)
@@ -237,7 +238,7 @@ Every event is JSON in a shared envelope, with a JSON Schema in `docs/schemas/` 
 
 ### Simulator database (`fpssim`)
 
-`submission` (end_to_end_id PK, received_at, outcome, reason_code, callback_sent_at).
+`submission` (end_to_end_id PK, received_at, outcome, reason_code, outcome_sent_at).
 
 ## 7. API
 
@@ -256,7 +257,7 @@ All paths are under `/v1` (Spring Framework 7 API versioning). Errors are RFC 94
 | `POST /scheme/callbacks` | simulator (HMAC) | pacs.002-lite |
 | `POST /demo-sessions` | public | `{role: CUSTOMER / OPERATOR}`; rate-limited |
 
-Problem types include `validation-failed`, `idempotency-key-reused`, `idempotency-key-missing`, `already-reversed`, `payment-pending`, `forbidden`, `not-found` and `rate-limited`.
+A problem about one request field names it in a `field` extension member, by its path in the JSON body (such as `amountPence` or `payee.sortCode`), so a client can show it beside that field. Problem types include `validation-failed`, `idempotency-key-reused`, `idempotency-key-missing`, `already-reversed`, `payment-pending`, `seed-data-read-only`, `forbidden`, `not-found` and `rate-limited`.
 
 ## 8. Auth and public demo
 
@@ -267,6 +268,9 @@ Problem types include `validation-failed`, `idempotency-key-reused`, `idempotenc
 - **No Keycloak or OAuth in v1.**
 - **"Try as customer"** creates a Demo Sandbox: a new Customer with two Customer Accounts, funded from Funding by real Transactions.
 - **"Try as operator"** can correct only Transactions on Demo Sandbox Accounts. Seeded data is read-only for everyone.
+  - Seeded data means a `source=SEED` Transaction, or a seeded Customer Account: one owned by a Customer the seed loaded (`customer.seeded`). Internal Accounts are shared by seeded and live data, so they are never seeded.
+  - Any Operator's Correction is refused with `409 /problems/seed-data-read-only` when it targets a `source=SEED` Transaction, or when every Customer Account it would touch is seeded: an Adjustment of a seeded Customer Account, or a Reversing Correction of a live Transaction whose Customer Accounts are all seeded (such as a load-test Payment).
+  - This is the narrowest reading of the rule: a live Transaction between a seeded and a live Customer Account can still be corrected. The seed's own Corrections are bulk-loaded directly and never pass this check.
 - **Abuse limits:**
   - one sandbox per IP per 10 minutes
   - 500 sandboxes per day globally
@@ -306,6 +310,7 @@ The M1 transfer page is bare and unstyled. Tests are Vitest for components plus 
 - **Synthetic identities:** names from Datafaker with a fixed seed. Sort codes come from one range documented as fictional.
 - **Built with the domain Transaction aggregate**, so every seeded Transaction balances. The generator computes `balance_after` and funds checks in memory, then bulk-loads Entries, Transactions and outbox rows with `COPY`. The publisher then drains the outbox into Kafka. This doubles as a throughput demo and is how the Read Model gets the seeded history.
 - **Seed is the only path allowed to set a past `booked_at`.** Those rows are marked `source=SEED`.
+- **No PaymentStatusChanged events for seeded Payments.** The seed loads each Payment directly in its final status and appends only `TransactionPosted` outbox rows. This is a deliberate exception to story 45: a seeded Payment never changed status inside the ledger, so there is no change to record. The Read Model's Payment figures (the dashboard's outcomes and Rejection Reasons) therefore count only live Payments.
 
 ## 11. Non-functional targets
 

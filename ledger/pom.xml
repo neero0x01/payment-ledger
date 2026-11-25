@@ -14,6 +14,10 @@
   <name>ledger</name>
   <description>The double-entry ledger: a Spring Boot modular monolith</description>
 
+  <properties>
+    <springdoc.version>3.2.1</springdoc.version>
+  </properties>
+
   <dependencies>
     <dependency>
       <groupId>org.springframework.boot</groupId>
@@ -38,6 +42,12 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <!-- The OpenAPI 3.1 document and Swagger UI at /docs (spec §7). -->
+      <groupId>org.springdoc</groupId>
+      <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+      <version>${springdoc.version}</version>
     </dependency>
     <dependency>
       <groupId>org.flywaydb</groupId>
@@ -117,6 +127,23 @@
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <!-- The seed generator builds its Transactions with the ledger's domain types, so the
+               plain jar stays the main artifact and the runnable one gets a classifier. -->
+          <classifier>exec</classifier>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>com.google.cloud.tools</groupId>
+        <artifactId>jib-maven-plugin</artifactId>
+        <configuration>
+          <container>
+            <mainClass>com.paymentledger.ledger.LedgerApplication</mainClass>
+            <ports>
+              <port>8080</port>
+            </ports>
+          </container>
+        </configuration>
       </plugin>
     </plugins>
   </build>

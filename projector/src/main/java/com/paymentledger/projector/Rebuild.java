@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Consumer;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.ConsumerGroupDescription;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
@@ -70,7 +71,12 @@ class Rebuild implements ApplicationRunner {
     }
     refuseWhileTheProjectorIsConsuming();
     createFreshTables();
-    replay(TransactionPostedListener.TOPIC);
+    replay(
+        TransactionPostedListener.TOPIC,
+        event -> readModel.apply(json.readValue(event, TransactionPosted.class)));
+    replay(
+        PaymentStatusChangedListener.TOPIC,
+        event -> readModel.apply(json.readValue(event, PaymentStatusChanged.class)));
     swapIn();
   }
 
@@ -115,7 +121,7 @@ class Rebuild implements ApplicationRunner {
    * Applies every event on the topic, from offset 0 to the end each partition had when the replay
    * started, to the fresh tables, one polled batch per database transaction.
    */
-  private void replay(String topic) {
+  private void replay(String topic, Consumer<String> apply) {
     try (KafkaConsumer<String, String> consumer = replayConsumer()) {
       List<TopicPartition> partitions =
           consumer.partitionsFor(topic).stream()
@@ -128,8 +134,7 @@ class Rebuild implements ApplicationRunner {
         ConsumerRecords<String, String> records = consumer.poll(Duration.ofMillis(500));
         transaction.executeWithoutResult(status -> {
           jdbc.sql("set local search_path to rebuild").update();
-          records.forEach(
-              record -> readModel.apply(json.readValue(record.value(), TransactionPosted.class)));
+          records.forEach(record -> apply.accept(record.value()));
         });
       }
     }

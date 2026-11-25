@@ -29,13 +29,15 @@ public sealed interface Payee {
 
     public AtAnotherBank {
       if (sortCode == null || !SORT_CODE.matcher(sortCode).matches()) {
-        throw Problem.validationFailed("The Payee's sort code must be six digits");
+        throw Problem.validationFailed(
+            "payee.sortCode", "The Payee's sort code must be six digits");
       }
       if (accountNumber == null || !ACCOUNT_NUMBER.matcher(accountNumber).matches()) {
-        throw Problem.validationFailed("The Payee's account number must be eight digits");
+        throw Problem.validationFailed(
+            "payee.accountNumber", "The Payee's account number must be eight digits");
       }
       if (name == null || name.isBlank()) {
-        throw Problem.validationFailed("The Payee needs a name");
+        throw Problem.validationFailed("payee.name", "The Payee needs a name");
       }
     }
   }

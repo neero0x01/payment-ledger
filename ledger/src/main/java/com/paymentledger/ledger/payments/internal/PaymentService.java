@@ -27,11 +27,15 @@ import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,18 +43,30 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 class PaymentService {
 
+  private static final Logger log = LoggerFactory.getLogger(PaymentService.class);
+
   static final Money MAXIMUM_AMOUNT = Money.ofPence(1_000_000_00);
 
   private final PaymentRepository payments;
   private final Posting posting;
   private final Accounts accounts;
   private final Outbox outbox;
+  private final Counter schemeAnomalies;
 
-  PaymentService(PaymentRepository payments, Posting posting, Accounts accounts, Outbox outbox) {
+  PaymentService(
+      PaymentRepository payments,
+      Posting posting,
+      Accounts accounts,
+      Outbox outbox,
+      MeterRegistry meters) {
     this.payments = payments;
     this.posting = posting;
     this.accounts = accounts;
     this.outbox = outbox;
+    this.schemeAnomalies =
+        Counter.builder("ledger.scheme.anomalies")
+            .description("Scheme Outcomes that contradict the one already recorded")
+            .register(meters);
   }
 
   /**
@@ -66,11 +82,12 @@ class PaymentService {
       CustomerId customer, IdempotencyKey key, AccountId debtor, AccountId payee, Money amount) {
     requireAllowedAmount(amount);
     if (debtor.equals(payee)) {
-      throw Problem.validationFailed("The Payee must be a different Account from the payer");
+      throw Problem.validationFailed(
+          "payee.accountId", "The Payee must be a different Account from the payer");
     }
     Account payer = payerOwnedBy(customer, debtor);
     if (accounts.find(payee).isEmpty()) {
-      throw Problem.notFound("No Account " + payee.value() + " exists to pay");
+      throw Problem.notFound("payee.accountId", "No Account " + payee.value() + " exists to pay");
     }
     KeyedPayment keyed =
         new KeyedPayment(
@@ -163,7 +180,9 @@ class PaymentService {
    * Records the Scheme Outcome of a Pending Faster Payment: an accepted one makes it Completed with
    * no further Transaction, because the money stays in FPS Clearing; a Scheme Rejection makes it
    * Rejected and posts a Reversal. An outcome for a Payment that is no longer Pending changes
-   * nothing. Refuses an unknown End-to-End Id as not-found.
+   * nothing, so a repeated one is harmless; one that contradicts the recorded outcome (ACSC then
+   * RJCT, or RJCT then ACSC) is logged and counted as a scheme anomaly. Refuses an unknown
+   * End-to-End Id as not-found.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
   void recordSchemeOutcome(SchemeOutcome outcome) {
@@ -174,6 +193,15 @@ class PaymentService {
                 Problem.notFound(
                     "No Faster Payment has End-to-End Id " + outcome.endToEndId().value()));
     if (payment.status() != PaymentStatus.PENDING) {
+      if (contradicts(outcome, payment)) {
+        log.warn(
+            "Scheme anomaly: ignored {} for End-to-End Id {}, whose Payment {} is already {}",
+            outcome.status(),
+            outcome.endToEndId().value(),
+            payment.id().value(),
+            payment.status());
+        schemeAnomalies.increment();
+      }
       return;
     }
     Instant changedAt =
@@ -196,10 +224,18 @@ class PaymentService {
     return rejectedAt;
   }
 
+  /** Whether the Scheme Outcome disagrees with the one already recorded for the Payment. */
+  private static boolean contradicts(SchemeOutcome outcome, Payment payment) {
+    return switch (outcome.status()) {
+      case ACSC -> payment.status() == PaymentStatus.REJECTED;
+      case RJCT -> payment.status() == PaymentStatus.COMPLETED;
+    };
+  }
+
   private static void requireAllowedAmount(Money amount) {
-    Problem.requirePositive(amount);
+    Problem.requirePositive(amount, "amountPence");
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
-      throw Problem.validationFailed("The amount must be at most £1,000,000.00");
+      throw Problem.validationFailed("amountPence", "The amount must be at most £1,000,000.00");
     }
   }
 
@@ -208,8 +244,9 @@ class PaymentService {
     Account payer =
         accounts
             .find(debtor)
-            .orElseThrow(
-                () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
+            .orElseThrow(() ->
+                Problem.notFound(
+                    "debtorAccountId", "No Account " + debtor.value() + " exists to pay from"));
     if (!payer.isOwnedBy(customer)) {
       throw Problem.forbidden("Account " + debtor.value() + " is not yours to pay from");
     }

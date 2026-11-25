@@ -1,22 +1,41 @@
-# Local stack: Postgres, Kafka, the ledger, the projector and the bare transfer page.
+# The whole system: Postgres, Kafka, the ledger, the projector, the FPS simulator, Caddy and Alloy.
+# The same file runs locally, in CI's smoke test and on the EC2 box (ADR 0011).
+#
+# The three Java services run the images Jib publishes to GHCR from main. `docker compose up`
+# pulls them, and builds from source if they can't be pulled; `docker compose up --build` always
+# builds from source. IMAGE_TAG picks a published tag (default latest).
+#
+# Memory limits are the budget for the 4 GiB t4g.medium (spec §11). Host ports other than Caddy's
+# are bound to 127.0.0.1, so only Caddy is reachable from outside the box.
+#
+# The bare transfer page is in the `web` profile: in production the SPA is on Cloudflare Pages.
+x-java-memory: &java-memory
+  # The heap gets half the container's limit; the rest is metaspace, code cache and thread stacks.
+  JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError
+
 services:
   postgres:
     image: postgres:18
     environment:
       POSTGRES_DB: ledger
       POSTGRES_USER: ledger
-      POSTGRES_PASSWORD: ledger
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
-      # Creates the readmodel database on first start (an existing postgres-data volume skips it).
+      # Creates the readmodel and fpssim databases on first start (an existing postgres-data volume
+      # skips it).
       - ./postgres/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ledger -d ledger"]
       interval: 2s
       timeout: 5s
       retries: 30
+    deploy:
+      resources:
+        limits:
+          memory: 768m
 
   kafka:
     # Single-node KRaft (spec §10). Setting any KAFKA_ variable replaces the image's defaults, so
@@ -50,20 +69,31 @@ services:
       timeout: 15s
       start_period: 20s
       retries: 30
+    deploy:
+      resources:
+        limits:
+          memory: 1g
 
   ledger:
+    image: ${IMAGE_REGISTRY:-ghcr.io/neero0x01/payment-ledger}/ledger:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: ledger/Dockerfile
     environment:
-      SPRING_PROFILES_ACTIVE: local
+      <<: *java-memory
+      # No profile unless LEDGER_PROFILES names one, so a deploy never opens the local Accounts by
+      # accident. LEDGER_PROFILES=local opens two funded Customer Accounts with a known login, for
+      # running the stack on a laptop and for the smoke test.
+      SPRING_PROFILES_ACTIVE: ${LEDGER_PROFILES:-}
       LEDGER_DB_URL: jdbc:postgresql://postgres:5432/ledger
       LEDGER_DB_USER: ledger
-      LEDGER_DB_PASSWORD: ledger
+      LEDGER_DB_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       READMODEL_DB_URL: jdbc:postgresql://postgres:5432/readmodel
+      SCHEME_BASE_URL: http://fps-simulator:8081
+      SCHEME_CALLBACK_HMAC_KEY: ${SCHEME_CALLBACK_HMAC_KEY:-local-dev-only-scheme-callback-key}
     ports:
-      - "8080:8080"
+      - "127.0.0.1:${LEDGER_PORT:-8080}:8080"
     # The ledger stops at startup if it can't create its topics (spring.kafka.admin.fail-fast).
     restart: on-failure
     depends_on:
@@ -73,30 +103,108 @@ services:
       # never wait for Kafka; the outbox publisher catches up once it is reachable.
       kafka:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 512m
 
   projector:
     # Builds the Read Model from Kafka into the readmodel database (ADR 0002). Headless.
+    image: ${IMAGE_REGISTRY:-ghcr.io/neero0x01/payment-ledger}/projector:${IMAGE_TAG:-latest}
     build:
       context: ..
       dockerfile: projector/Dockerfile
     environment:
+      <<: *java-memory
       PROJECTOR_DB_URL: jdbc:postgresql://postgres:5432/readmodel
       PROJECTOR_DB_USER: ledger
-      PROJECTOR_DB_PASSWORD: ledger
+      PROJECTOR_DB_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
       postgres:
         condition: service_healthy
       kafka:
         condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 320m
+
+  fps-simulator:
+    # Stands in for the Faster Payments Scheme (ADR 0008). Change its accept/reject rate, black-hole
+    # rate and latency while it runs with PUT http://localhost:8081/admin/settings.
+    image: ${IMAGE_REGISTRY:-ghcr.io/neero0x01/payment-ledger}/fps-simulator:${IMAGE_TAG:-latest}
+    build:
+      context: ..
+      dockerfile: fps-simulator/Dockerfile
+    environment:
+      <<: *java-memory
+      FPSSIM_DB_URL: jdbc:postgresql://postgres:5432/fpssim
+      FPSSIM_DB_USER: ledger
+      FPSSIM_DB_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
+      FPSSIM_LEDGER_BASE_URL: http://ledger:8080
+      FPSSIM_CALLBACK_HMAC_KEY: ${SCHEME_CALLBACK_HMAC_KEY:-local-dev-only-scheme-callback-key}
+      FPSSIM_ACCEPT_RATE: "0.95"
+      FPSSIM_BLACK_HOLE_RATE: "0"
+      FPSSIM_LATENCY_P50_MS: "200"
+      FPSSIM_LATENCY_P99_MS: "2000"
+    ports:
+      - "127.0.0.1:${FPSSIM_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+
+  caddy:
+    # The only way in from outside: terminates TLS for LEDGER_API_HOST and proxies to the ledger.
+    # Without LEDGER_API_HOST it serves plain HTTP on port 80.
+    image: caddy:2.11-alpine
+    environment:
+      LEDGER_API_HOST: ${LEDGER_API_HOST:-:80}
+    ports:
+      - "${CADDY_HTTP_PORT:-80}:80"
+      - "${CADDY_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - ledger
+    deploy:
+      resources:
+        limits:
+          memory: 30m
+
+  alloy:
+    # Grafana Alloy, the agent that ships metrics, traces and logs to Grafana Cloud (spec §13).
+    image: grafana/alloy:v1.22.0
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    deploy:
+      resources:
+        limits:
+          memory: 128m
 
   web:
     build: ../web
+    profiles: [web]
     ports:
-      - "5173:80"
+      - "${WEB_PORT:-5173}:80"
     depends_on:
       - ledger
 
 volumes:
   postgres-data:
   kafka-data:
+  caddy-data:
+  caddy-config:
+  alloy-data:

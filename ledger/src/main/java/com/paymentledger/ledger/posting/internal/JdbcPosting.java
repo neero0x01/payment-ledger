@@ -12,6 +12,7 @@ import com.paymentledger.ledger.posting.PostedEntry;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
 import com.paymentledger.ledger.posting.TransactionKind;
+import com.paymentledger.ledger.posting.TransactionSource;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotentOutcome;
 import com.paymentledger.ledger.shared.Money;
@@ -127,12 +128,12 @@ class JdbcPosting implements Posting {
         jdbc.sql(
                 """
                 insert into ledger_transaction (
-                    kind, booked_at, payment_id, reverses_transaction_id,
+                    kind, booked_at, payment_id, reverses_transaction_id, adjusts_transaction_id,
                     correction_reason, correction_note,
                     principal_id, idempotency_key, request_hash)
                 values (
                     :kind, clock_timestamp(), :paymentId, :reversesTransactionId,
-                    :correctionReason, :correctionNote,
+                    :adjustsTransactionId, :correctionReason, :correctionNote,
                     :principal, :key, :requestHash)
                 on conflict (principal_id, idempotency_key) where idempotency_key is not null
                 do nothing
@@ -144,6 +145,10 @@ class JdbcPosting implements Posting {
             .param(
                 "reversesTransactionId",
                 transaction.reverses().map(TransactionId::value).orElse(null),
+                Types.OTHER)
+            .param(
+                "adjustsTransactionId",
+                transaction.adjusts().map(TransactionId::value).orElse(null),
                 Types.OTHER)
             .param("correctionReason", correction.reason(), Types.VARCHAR)
             .param("correctionNote", correction.note(), Types.VARCHAR)
@@ -208,7 +213,7 @@ class JdbcPosting implements Posting {
     return jdbc.sql(
             """
             select id, kind, booked_at, payment_id, reverses_transaction_id,
-                   correction_reason, correction_note
+                   adjusts_transaction_id, correction_reason, correction_note, source
             from ledger_transaction
             where id = :id
             """)
@@ -216,6 +221,7 @@ class JdbcPosting implements Posting {
         .query((rs, rowNum) -> {
           UUID paymentId = rs.getObject("payment_id", UUID.class);
           UUID reverses = rs.getObject("reverses_transaction_id", UUID.class);
+          UUID adjusts = rs.getObject("adjusts_transaction_id", UUID.class);
           String reason = rs.getString("correction_reason");
           return new PostedTransaction(
               new TransactionId(rs.getObject("id", UUID.class)),
@@ -227,6 +233,8 @@ class JdbcPosting implements Posting {
                   ? null
                   : new CorrectionDetails(
                       CorrectionReason.valueOf(reason), rs.getString("correction_note")),
+              adjusts == null ? null : new TransactionId(adjusts),
+              TransactionSource.valueOf(rs.getString("source")),
               entries);
         })
         .optional();
@@ -244,6 +252,35 @@ class JdbcPosting implements Posting {
         .param("id", transaction.value())
         .query(Boolean.class)
         .single();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public Optional<TransactionId> reversalOf(TransactionId transaction) {
+    return jdbc.sql("select id from ledger_transaction where reverses_transaction_id = :id")
+        .param("id", transaction.value())
+        .query((rs, row) -> new TransactionId(rs.getObject("id", UUID.class)))
+        .optional();
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<TransactionId> correctionsOf(TransactionId transaction) {
+    return jdbc
+        .sql(
+            """
+            select id
+            from ledger_transaction
+            where kind = 'CORRECTION'
+              and (reverses_transaction_id = :id or adjusts_transaction_id = :id)
+            order by booked_at, id
+            """)
+        .param("id", transaction.value())
+        .query(UUID.class)
+        .list()
+        .stream()
+        .map(TransactionId::new)
+        .toList();
   }
 
   @Override

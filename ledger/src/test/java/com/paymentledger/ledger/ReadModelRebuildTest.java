@@ -136,6 +136,9 @@ class ReadModelRebuildTest {
     awaitStatementLines(operator, a, 9);
     awaitStatementLines(operator, b, 7);
     awaitStatementLines(operator, c, 3);
+    await()
+        .atMost(PROJECTION)
+        .until(() -> dashboardFigures(operator).get("outcomes").get("completed").asLong() == 8);
   }
 
   /** Every Account the Operator can see, by id, with its Statement Lines. */
@@ -148,7 +151,27 @@ class ReadModelRebuildTest {
       view.set("lines", JSON.valueToTree(statementLines(operator, id)));
       readModel.put(id.value().toString(), view);
     }
+    readModel.put("dashboard", dashboardFigures(operator));
     return readModel;
+  }
+
+  /** The dashboard's outcomes and Rejection Reasons, from the Read Model's per-minute figures. */
+  private static JsonNode dashboardFigures(RestTestClient operator) {
+    String body =
+        operator
+            .get()
+            .uri("/v1/dashboard")
+            .exchange()
+            .expectStatus()
+            .isOk()
+            .expectBody(String.class)
+            .returnResult()
+            .getResponseBody();
+    JsonNode dashboard = JSON.readTree(body);
+    ObjectNode figures = JSON.createObjectNode();
+    figures.set("outcomes", dashboard.get("outcomes"));
+    figures.set("rejectionReasons", dashboard.get("rejectionReasons"));
+    return figures;
   }
 
   /** A broken projection, as when a bug in the projector wrote nothing, or garbage. */
@@ -159,7 +182,7 @@ class ReadModelRebuildTest {
             postgres.getUsername(),
             postgres.getPassword());
     JdbcClient.create(readModel)
-        .sql("truncate account_balance_view, statement_line, processed_event")
+        .sql("truncate account_balance_view, statement_line, dashboard_minute, processed_event")
         .update();
   }
 

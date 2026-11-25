@@ -40,7 +40,10 @@ class PaymentValidationTest {
   @Test
   void rejects_a_zero_amount_as_validation_failed_and_posts_nothing() {
     expectProblem(
-        transfer(a.value(), b.value(), 0), HttpStatus.BAD_REQUEST, "/problems/validation-failed");
+        transfer(a.value(), b.value(), 0),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed",
+        "amountPence");
 
     assertBalancesUnchanged();
   }
@@ -48,7 +51,10 @@ class PaymentValidationTest {
   @Test
   void rejects_a_negative_amount_as_validation_failed_and_posts_nothing() {
     expectProblem(
-        transfer(a.value(), b.value(), -1), HttpStatus.BAD_REQUEST, "/problems/validation-failed");
+        transfer(a.value(), b.value(), -1),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed",
+        "amountPence");
 
     assertBalancesUnchanged();
   }
@@ -58,7 +64,8 @@ class PaymentValidationTest {
     expectProblem(
         transfer(a.value(), b.value(), 1_000_000_01),
         HttpStatus.BAD_REQUEST,
-        "/problems/validation-failed");
+        "/problems/validation-failed",
+        "amountPence");
 
     assertBalancesUnchanged();
   }
@@ -68,7 +75,8 @@ class PaymentValidationTest {
     expectProblem(
         transfer(a.value(), a.value(), 10_00),
         HttpStatus.BAD_REQUEST,
-        "/problems/validation-failed");
+        "/problems/validation-failed",
+        "payee.accountId");
 
     assertBalancesUnchanged();
   }
@@ -81,7 +89,8 @@ class PaymentValidationTest {
         """
             .formatted(a.value()),
         HttpStatus.BAD_REQUEST,
-        "/problems/validation-failed");
+        "/problems/validation-failed",
+        "payee");
 
     assertBalancesUnchanged();
   }
@@ -94,7 +103,8 @@ class PaymentValidationTest {
         """
             .formatted(b.value()),
         HttpStatus.BAD_REQUEST,
-        "/problems/validation-failed");
+        "/problems/validation-failed",
+        "debtorAccountId");
 
     assertBalancesUnchanged();
   }
@@ -102,7 +112,10 @@ class PaymentValidationTest {
   @Test
   void rejects_an_unknown_payee_account_as_not_found_and_posts_nothing() {
     expectProblem(
-        transfer(a.value(), UUID.randomUUID(), 10_00), HttpStatus.NOT_FOUND, "/problems/not-found");
+        transfer(a.value(), UUID.randomUUID(), 10_00),
+        HttpStatus.NOT_FOUND,
+        "/problems/not-found",
+        "payee.accountId");
 
     assertBalancesUnchanged();
   }
@@ -110,12 +123,33 @@ class PaymentValidationTest {
   @Test
   void rejects_an_unknown_payer_account_as_not_found_and_posts_nothing() {
     expectProblem(
-        transfer(UUID.randomUUID(), b.value(), 10_00), HttpStatus.NOT_FOUND, "/problems/not-found");
+        transfer(UUID.randomUUID(), b.value(), 10_00),
+        HttpStatus.NOT_FOUND,
+        "/problems/not-found",
+        "debtorAccountId");
 
     assertBalancesUnchanged();
   }
 
-  private void expectProblem(String body, HttpStatus status, String type) {
+  /** Expects the problem, naming the request field it is about. */
+  @Test
+  void rejects_a_faster_payment_with_a_malformed_sort_code_naming_the_sort_code() {
+    expectProblem(
+        """
+        {"debtorAccountId": "%s",
+         "payee": {"sortCode": "12345", "accountNumber": "12345678", "name": "Jane Doe"},
+         "amountPence": 1000}
+        """
+            .formatted(a.value()),
+        HttpStatus.BAD_REQUEST,
+        "/problems/validation-failed",
+        "payee.sortCode");
+
+    assertBalancesUnchanged();
+  }
+
+  /** Expects the problem, naming the request field it is about. */
+  private void expectProblem(String body, HttpStatus status, String type, String field) {
     customer
         .post()
         .uri("/v1/payments")
@@ -135,7 +169,9 @@ class PaymentValidationTest {
         .jsonPath("$.status")
         .isEqualTo(status.value())
         .jsonPath("$.detail")
-        .isNotEmpty();
+        .isNotEmpty()
+        .jsonPath("$.field")
+        .isEqualTo(field);
   }
 
   /** No Transaction was posted: both Balances are as arranged. */

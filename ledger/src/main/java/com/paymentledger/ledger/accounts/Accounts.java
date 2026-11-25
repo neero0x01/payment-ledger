@@ -4,6 +4,7 @@ import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.CustomerId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.Principal;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -11,6 +12,9 @@ import java.util.Optional;
 public interface Accounts {
 
   CustomerId registerCustomer(String displayName);
+
+  /** Registers the Customer of a new Demo Sandbox, for one visitor to the public demo. */
+  CustomerId registerDemoCustomer(String displayName);
 
   /** Opens a credit-normal Customer Account with a zero Balance and the given Overdraft Limit. */
   AccountId openCustomerAccount(CustomerId owner, String name, Money overdraftLimit);
@@ -28,6 +32,19 @@ public interface Accounts {
   AccountId fpsClearing();
 
   Optional<Account> find(AccountId id);
+
+  /**
+   * Whether the Accounts include a Customer Account and every Customer Account among them is a
+   * seeded one, which the seed loaded and no Correction may touch (spec §8). Internal Accounts
+   * don't count: seeded and live data share them.
+   */
+  boolean areSeededOnly(Collection<AccountId> accounts);
+
+  /**
+   * Whether the Accounts include a Customer Account and every Customer Account among them is in a
+   * Demo Sandbox. Internal Accounts, such as Funding, don't count.
+   */
+  boolean areInDemoSandboxesOnly(Collection<AccountId> accounts);
 
   /**
    * The Accounts the Principal may see, oldest first: a Customer's own Customer Accounts, or every

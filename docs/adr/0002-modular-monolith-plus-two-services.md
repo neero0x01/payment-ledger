@@ -1,6 +1,6 @@
 # A modular monolith plus exactly two extracted services
 
-The ledger core (`accounts`, `payments`, `posting`, `outbox`, `views`) is one Spring Boot application. Spring Modulith verifies its module boundaries in CI. Two parts run as separate services, each for a concrete reason:
+The ledger core (`accounts`, `payments`, `posting`, `outbox`, `views`, and `demo` since ADR 0012) is one Spring Boot application. Spring Modulith verifies its module boundaries in CI. Two parts run as separate services, each for a concrete reason:
 
 - **`fps-simulator`** stands in for an external party, the Faster Payments Scheme, so it must sit across a network boundary.
 - **`projector`** demonstrates CQRS: it builds the Read Model from Kafka and can be rebuilt or lag without affecting Payments.

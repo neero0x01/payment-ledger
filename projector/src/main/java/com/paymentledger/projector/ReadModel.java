@@ -2,6 +2,7 @@ package com.paymentledger.projector;
 
 import com.paymentledger.projector.TransactionPosted.PostedEntry;
 import java.time.ZoneOffset;
+import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,7 +23,7 @@ class ReadModel {
    */
   @Transactional
   void apply(TransactionPosted event) {
-    if (!recordProcessed(event)) {
+    if (!recordProcessed(event.eventId())) {
       return;
     }
     for (PostedEntry entry : event.payload().entries()) {
@@ -31,15 +32,45 @@ class ReadModel {
     }
   }
 
+  /**
+   * Applies a PaymentStatusChanged event, adding its Payment to the dashboard's figures for the
+   * minute it happened in, unless an event with its eventId was applied already. Counts add up the
+   * same in any order.
+   */
+  @Transactional
+  void apply(PaymentStatusChanged event) {
+    if (!recordProcessed(event.eventId())) {
+      return;
+    }
+    PaymentStatusChanged.Payload payment = event.payload();
+    jdbc.sql(
+            """
+            insert into dashboard_minute (
+                minute, payment_type, status, rejection_reason, payments, value_pence)
+            values (date_trunc('minute', :occurredAt), :type, :status, :rejectionReason, 1,
+                    :amountPence)
+            on conflict (minute, payment_type, status, rejection_reason) do update
+            set payments = dashboard_minute.payments + 1,
+                value_pence = dashboard_minute.value_pence + excluded.value_pence
+            """)
+        .param("occurredAt", event.occurredAt().atOffset(ZoneOffset.UTC))
+        .param("type", payment.type())
+        .param("status", payment.status())
+        .param(
+            "rejectionReason", payment.rejectionReason() == null ? "" : payment.rejectionReason())
+        .param("amountPence", payment.amountPence())
+        .update();
+  }
+
   /** Records the event as processed, or answers false if it was already. */
-  private boolean recordProcessed(TransactionPosted event) {
+  private boolean recordProcessed(UUID eventId) {
     return jdbc.sql(
                 """
                 insert into processed_event (event_id)
                 values (:eventId)
                 on conflict (event_id) do nothing
                 """)
-            .param("eventId", event.eventId())
+            .param("eventId", eventId)
             .update()
         == 1;
   }

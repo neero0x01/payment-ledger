@@ -83,6 +83,28 @@ class LedgerDatabaseInvariantsTest {
         .isInstanceOf(DataAccessException.class);
   }
 
+  @Test
+  void commit_is_rejected_when_an_entry_is_booked_at_another_moment_than_its_transaction() {
+    assertThatThrownBy(() ->
+            transaction.executeWithoutResult(status -> {
+              UUID id = insertFundingTransaction();
+              insertEntry(id, funding, "DEBIT", 10_00);
+              jdbc.sql(
+                      """
+                      insert into entry (
+                          transaction_id, account_id, side, amount_pence, booked_at,
+                          entry_seq, balance_after_pence)
+                      select id, :accountId, 'CREDIT', 1000, booked_at + interval '1 second', 1, 0
+                      from ledger_transaction
+                      where id = :transactionId
+                      """)
+                  .param("transactionId", id)
+                  .param("accountId", customer.value())
+                  .update();
+            }))
+        .isInstanceOf(DataAccessException.class);
+  }
+
   @ParameterizedTest
   @ValueSource(
       strings = {
@@ -126,14 +148,19 @@ class LedgerDatabaseInvariantsTest {
         .single();
   }
 
-  /** The guard under test ignores entry_seq and balance_after, so any valid values do. */
+  /**
+   * Books the Entry at its Transaction's Booking Time, as posting does. The guard under test
+   * ignores entry_seq and balance_after, so any valid values do.
+   */
   private void insertEntry(UUID transactionId, AccountId account, String side, long pence) {
     jdbc.sql(
             """
             insert into entry (
                 transaction_id, account_id, side, amount_pence, booked_at,
                 entry_seq, balance_after_pence)
-            values (:transactionId, :accountId, :side, :pence, clock_timestamp(), 1, 0)
+            select id, :accountId, :side, :pence, booked_at, 1, 0
+            from ledger_transaction
+            where id = :transactionId
             """)
         .param("transactionId", transactionId)
         .param("accountId", account.value())

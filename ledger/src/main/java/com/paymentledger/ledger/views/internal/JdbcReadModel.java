@@ -1,5 +1,7 @@
 package com.paymentledger.ledger.views.internal;
 
+import com.paymentledger.ledger.outbox.EventId;
+import com.paymentledger.ledger.payments.RejectionReason;
 import com.paymentledger.ledger.posting.ReadModelBalance;
 import com.paymentledger.ledger.posting.ReadModelBalances;
 import com.paymentledger.ledger.shared.AccountId;
@@ -12,6 +14,7 @@ import java.time.ZoneOffset;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import javax.sql.DataSource;
@@ -119,6 +122,61 @@ class JdbcReadModel implements ReadModelBalances {
         })
         .list();
   }
+
+  /** Those of the events the projector has applied to the Read Model. */
+  Set<EventId> applied(Collection<EventId> eventIds) {
+    if (eventIds.isEmpty()) {
+      return Set.of();
+    }
+    return Set.copyOf(
+        jdbc.sql("select event_id from processed_event where event_id in (:eventIds)")
+            .param("eventIds", eventIds.stream().map(EventId::value).toList())
+            .query((rs, rowNum) -> new EventId(rs.getObject("event_id", UUID.class)))
+            .list());
+  }
+
+  /**
+   * The dashboard's per-minute figures summed from the minute since (inclusive) on: how many
+   * Payments were made in the minute given, and how many became Completed and Rejected, by
+   * Rejection Reason. A Payment is made when it first takes a status: Pending for a Faster Payment
+   * accepted for sending, and otherwise its final status, Insufficient Funds included.
+   */
+  PaymentFigures paymentFigures(Instant since, Instant madeIn) {
+    return jdbc.sql(
+            """
+            select
+                coalesce(sum(payments) filter (
+                    where minute = :madeIn
+                      and (status = 'PENDING' or payment_type = 'INTERNAL_TRANSFER'
+                           or rejection_reason = 'INSUFFICIENT_FUNDS')), 0) as made,
+                coalesce(sum(payments) filter (where status = 'COMPLETED'), 0) as completed,
+                coalesce(sum(payments) filter (where status = 'REJECTED'), 0) as rejected,
+                coalesce(sum(payments) filter (
+                    where rejection_reason = 'INSUFFICIENT_FUNDS'), 0) as insufficient_funds,
+                coalesce(sum(payments) filter (
+                    where rejection_reason = 'SCHEME_REJECTED'), 0) as scheme_rejected
+            from dashboard_minute
+            where minute >= :since
+            """)
+        .param("since", utc(since))
+        .param("madeIn", utc(madeIn))
+        .query((rs, rowNum) ->
+            new PaymentFigures(
+                rs.getLong("made"),
+                rs.getLong("completed"),
+                rs.getLong("rejected"),
+                Map.of(
+                    RejectionReason.INSUFFICIENT_FUNDS, rs.getLong("insufficient_funds"),
+                    RejectionReason.SCHEME_REJECTED, rs.getLong("scheme_rejected"))))
+        .single();
+  }
+
+  /**
+   * How many Payments were made in one minute, and how many became Completed and Rejected, by
+   * Rejection Reason, over a longer stretch.
+   */
+  record PaymentFigures(
+      long madeInMinute, long completed, long rejected, Map<RejectionReason, Long> rejections) {}
 
   private static @Nullable OffsetDateTime utc(@Nullable Instant instant) {
     return instant == null ? null : instant.atOffset(ZoneOffset.UTC);

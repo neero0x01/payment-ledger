@@ -32,9 +32,9 @@ spring:
   task:
     scheduling:
       pool:
-        # The outbox publisher polls every 200 ms; the balanced check and its nightly sweep get
-        # threads of their own so a long run never holds up publishing.
-        size: 3
+        # The outbox publisher polls every 200 ms; the balanced check, its nightly sweep and
+        # partition maintenance get threads of their own so a long run never holds up publishing.
+        size: 4
   mvc:
     apiversion:
       use:
@@ -42,6 +42,10 @@ spring:
       supported: "1"
     problemdetails:
       enabled: true
+springdoc:
+  # Swagger UI is public at /docs (spec §7); the OpenAPI document stays at /v3/api-docs.
+  swagger-ui:
+    path: /docs
 management:
   endpoints:
     web:
@@ -49,6 +53,9 @@ management:
         # Operators read the outbox lag and other gauges here (WebSecurity).
         include: health, metrics
 ledger:
+  demo:
+    # How many Demo Sandboxes the public demo creates a day across every visitor (spec §8).
+    sandboxes-per-day: 500
   balanced-check:
     # How often the balanced check proves the ledger balanced (spec §13).
     interval: PT60S
@@ -57,6 +64,10 @@ ledger:
     # How long the Read Model may trail an Account (Projection Freshness) before the check counts
     # it as drift.
     projection-freshness: PT60S
+  partition-maintenance:
+    # When the job creates Entry partitions three months ahead (ADR 0010): daily, in UTC. It also
+    # runs when the ledger starts.
+    cron: "0 0 3 * * *"
   read-model:
     # The views module's read-only connection to the readmodel database, which the projector writes.
     datasource:
@@ -66,9 +77,19 @@ ledger:
   scheme:
     # The Faster Payments Scheme simulator (ADR 0008).
     base-url: ${SCHEME_BASE_URL:http://localhost:8081}
+    # A Scheme Submission with no Scheme Outcome after this long is sent again (ADR 0008).
+    resend-after: PT15S
+    # A Faster Payment with no Scheme Outcome after this long is flagged as a Stuck Payment.
+    stuck-after: PT5M
+    # A Stuck Payment is still sent with the same End-to-End Id, this often, until the scheme
+    # answers. It stays flagged for an Operator and is never reversed automatically.
+    stuck-resend-after: PT1M
     # Signs every Scheme Outcome callback with HMAC-SHA256. Read from SSM in production (spec §10).
     callback-hmac-key: ${SCHEME_CALLBACK_HMAC_KEY:local-dev-only-scheme-callback-key}
 server:
+  # The visitor's IP address comes from the X-Forwarded-For header that the proxy in front of the
+  # ledger sets; only proxies on internal addresses are trusted to set it (demo limits, spec §8).
+  forward-headers-strategy: native
   servlet:
     session:
       cookie:

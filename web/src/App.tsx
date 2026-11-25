@@ -9,9 +9,9 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { Link, Outlet } from "@tanstack/react-router";
 import { fetchSession } from "./ledgerApi";
-import { LoginScreen } from "./LoginScreen";
+import { LandingScreen } from "./LandingScreen";
 
-/** The screens once someone has logged in, and the login screen until then. */
+/** The screens once someone has logged in, and the landing page until then. */
 export function App() {
   const session = useQuery({ queryKey: ["session"], queryFn: fetchSession });
   if (session.isPending) return <Typography sx={{ p: 2 }}>loading…</Typography>;
@@ -22,7 +22,7 @@ export function App() {
       </Typography>
     );
   }
-  if (!session.data) return <LoginScreen />;
+  if (!session.data) return <LandingScreen />;
   return (
     <>
       <AppBar position="static">
@@ -33,9 +33,15 @@ export function App() {
           <Button color="inherit" component={Link} to="/accounts">
             Accounts
           </Button>
-          <Button color="inherit" component={Link} to="/transfer">
-            Transfer
-          </Button>
+          {session.data.role === "OPERATOR" ? (
+            <Button color="inherit" component={Link} to="/dashboard">
+              Dashboard
+            </Button>
+          ) : (
+            <Button color="inherit" component={Link} to="/payments/new">
+              New Payment
+            </Button>
+          )}
         </Toolbar>
       </AppBar>
       <Container component="main" sx={{ py: 3 }}>
