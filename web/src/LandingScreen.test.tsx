@@ -10,7 +10,7 @@ afterEach(() => {
 
 const CURRENT = {
   id: "019a0000-0000-7000-8000-0000000000c1",
-  name: "Current Account",
+  name: "Customer Account",
 };
 const SAVINGS = {
   id: "019a0000-0000-7000-8000-0000000000c2",
@@ -65,7 +65,7 @@ test("Try as customer opens the visitor's own funded Demo Sandbox", async () => 
   );
 
   expect(
-    await screen.findByRole("row", { name: /^Current Account\b/ }),
+    await screen.findByRole("row", { name: /^Customer Account\b/ }),
   ).toHaveTextContent("£1,000.00");
   expect(
     screen.getByRole("row", { name: /^Savings Account\b/ }),
@@ -85,7 +85,7 @@ test("Try as operator logs the visitor in as the demo Operator", async () => {
   );
 
   expect(
-    await screen.findByRole("row", { name: /^Current Account\b/ }),
+    await screen.findByRole("row", { name: /^Customer Account\b/ }),
   ).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Try as operator" })).toBeNull();
   expect(demoSessions(ledger.requests)).toEqual([

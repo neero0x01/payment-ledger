@@ -50,6 +50,8 @@ jobs:
     env:
       # The Jib images built below; Compose must run these, not pull a published tag.
       IMAGE_TAG: ci
+      # The smoke test logs in as local-customer and pays from the local Accounts.
+      LEDGER_PROFILES: local
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6

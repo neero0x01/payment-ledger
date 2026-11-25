@@ -25,10 +25,10 @@ A double-entry payment ledger for a fictional small UK fintech, built in Java/Sp
 You need Docker. From the repository root:
 
 ```sh
-docker compose --profile web up --build
+LEDGER_PROFILES=local docker compose --profile web up --build
 ```
 
-This builds the services from source and starts the whole system: Postgres 18, Kafka, the ledger on http://localhost:8080, the projector, the FPS simulator, Caddy on http://localhost (in front of the ledger), Grafana Alloy, and the bare transfer page on http://localhost:5173. Each container runs under its share of the memory budget (spec §11). The ledger runs with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Log in as `local-customer` (password `local-customer`), make an Internal Transfer and both Balances update. `docker compose down -v` stops everything and deletes the data. Host ports are set by `POSTGRES_PORT`, `LEDGER_PORT`, `FPSSIM_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT` and `WEB_PORT` if the defaults are taken.
+This builds the services from source and starts the whole system: Postgres 18, Kafka, the ledger on http://localhost:8080, the projector, the FPS simulator, Caddy on http://localhost (in front of the ledger), Grafana Alloy, and the bare transfer page on http://localhost:5173. Each container runs under its share of the memory budget (spec §11). `LEDGER_PROFILES=local` runs the ledger with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Log in as `local-customer` (password `local-customer`), make an Internal Transfer and both Balances update. Without `LEDGER_PROFILES` the ledger runs with no profile, as it does when deployed, and opens no Accounts of its own. `docker compose down -v` stops everything and deletes the data. Host ports are set by `POSTGRES_PORT`, `LEDGER_PORT`, `FPSSIM_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT` and `WEB_PORT` if the defaults are taken.
 
 Without `--build`, Compose runs the images published to GHCR (`IMAGE_TAG` picks one; default `latest`). On every push to main, CI builds arm64 images of the ledger, projector and simulator with Jib and pushes them tagged `latest` and with the commit SHA. To build them into your local Docker instead:
 
@@ -62,18 +62,23 @@ The same settings start from the `FPSSIM_ACCEPT_RATE`, `FPSSIM_BLACK_HOLE_RATE`,
 
 ### Seed data
 
-The seed CLI in `seed/` loads about 1M synthetic Transactions, booked from 2025-11-01 to 2026-10-31, into an empty ledger database: 5,000 Customers with about 6,500 Customer Accounts, and 200 load-test Accounts with £1,000,000.00 each. It starts from a fixed random seed, so every run generates identical data. It migrates the database, refuses one that already has Transactions, and bulk-loads everything with `COPY` in one database transaction, marked `source=SEED`. The running ledger's outbox publisher then drains the seeded events into Kafka, and the projector builds the Read Model from them. Start from a fresh database (`docker compose down -v`) and seed it before the ledger first starts, since the `local` profile posts a Transaction of its own:
+The seed CLI in `seed/` loads about 1M synthetic Transactions, booked from 2025-11-01 to 2026-10-31, into an empty ledger database: 5,000 Customers with about 6,500 Customer Accounts, and 200 load-test Accounts with £1,000,000.00 each. It starts from a fixed random seed, so every run generates identical data. It migrates the database, refuses one that already has Transactions, and bulk-loads everything with `COPY` in one database transaction, marked `source=SEED`. The running ledger's outbox publisher then drains the seeded events into Kafka, and the projector builds the Read Model from them. The seed emits `TransactionPosted` events only, no `PaymentStatusChanged` ones (spec §10), so the dashboard's Payment figures count only live Payments. Start from a fresh database (`docker compose down -v`), seed it before the ledger first starts, and start the ledger without the `local` profile, which posts a Transaction of its own:
 
 ```sh
 docker compose up -d postgres
 ./mvnw -pl seed -am package -DskipTests
-java -jar seed/target/seed-0.1.0-SNAPSHOT.jar   # or --url=… --user=… --password=… --customers=…
+SEED_LOAD_TEST_PASSWORD='choose-one' java -jar seed/target/seed-0.1.0-SNAPSHOT.jar
+# or --url=… --user=… --password=… --customers=… --load-test-password=…
 docker compose up --build
 ```
 
+The default seed has 5,200 Customers in all: the 5,000 that `--customers` sets, plus the 200 load-test Customers who each own one load-test Account.
+
+**Load-test logins.** So the load test can make Payments from the 200 load-test Accounts, the seed gives each load-test Customer a login when it is given a password: `load-test-001` to `load-test-200`, where `load-test-NNN` owns `Load Test Account NNN`. The password comes from `--load-test-password` or, failing that, the `SEED_LOAD_TEST_PASSWORD` environment variable, and every load-test login shares it. There is no default: without a password the seed adds no logins. Choose a fresh one per environment and keep it with the load test's secrets, never in the repository.
+
 All seed data is synthetic. Customer names come from Datafaker with a fixed seed. **Every sort code in seed data is in the range 00-00-00 to 00-99-99, which this project treats as fictional**: the fintech's Customer Accounts are at 00-01-00, and Payees of seeded Faster Payments at the rest of the range. They stand in for real UK sort codes and must never be used to make a real payment.
 
-Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page. The Playwright smoke test (log in, pay, see Completed) runs against the stack in Compose: start it as above, then `npx playwright install chromium` once and `npm run smoke` in `web/` (`SMOKE_BASE_URL` points it elsewhere than http://localhost:5173).
+Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page. The Playwright smoke test (log in, pay, see Completed) runs against the stack in Compose: start it as above, with `LEDGER_PROFILES=local`, then `npx playwright install chromium` once and `npm run smoke` in `web/` (`SMOKE_BASE_URL` points it elsewhere than http://localhost:5173).
 
 ## Docs
 

@@ -1,8 +1,10 @@
 package com.paymentledger.ledger.outbox.internal;
 
 import com.paymentledger.ledger.outbox.AppendedEvent;
+import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.outbox.OutboxEvent;
+import com.paymentledger.ledger.outbox.OutboxLag;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -27,16 +29,20 @@ class JdbcOutbox implements Outbox {
   @Override
   @Transactional(propagation = Propagation.MANDATORY)
   public void append(OutboxEvent event) {
-    UUID eventId = UUID.randomUUID();
+    EventId eventId = EventId.random();
     Envelope envelope =
         new Envelope(
-            eventId, event.type(), event.schemaVersion(), event.occurredAt(), event.payload());
+            eventId.value(),
+            event.type(),
+            event.schemaVersion(),
+            event.occurredAt(),
+            event.payload());
     jdbc.sql(
             """
             insert into outbox (event_id, topic, msg_key, payload)
             values (:eventId, :topic, :key, cast(:payload as jsonb))
             """)
-        .param("eventId", eventId)
+        .param("eventId", eventId.value())
         .param("topic", event.topic())
         .param("key", event.key())
         .param("payload", json.writeValueAsString(envelope))
@@ -56,9 +62,26 @@ class JdbcOutbox implements Outbox {
         .param("limit", limit)
         .query((rs, rowNum) ->
             new AppendedEvent(
-                rs.getObject("event_id", UUID.class),
+                new EventId(rs.getObject("event_id", UUID.class)),
                 Duration.ofNanos(Math.round(rs.getDouble("age_seconds") * 1e9))))
         .list();
+  }
+
+  @Override
+  public OutboxLag lag() {
+    return jdbc.sql(
+            """
+            select count(*) as unpublished,
+                   coalesce(extract(epoch from clock_timestamp() - min(created_at)), 0)
+                       as oldest_age_seconds
+            from outbox
+            where published_at is null
+            """)
+        .query((rs, rowNum) ->
+            new OutboxLag(
+                rs.getLong("unpublished"),
+                Duration.ofNanos(Math.round(rs.getDouble("oldest_age_seconds") * 1e9))))
+        .single();
   }
 
   /** The shared event envelope (ADR 0006), sent as the Kafka message's value. */

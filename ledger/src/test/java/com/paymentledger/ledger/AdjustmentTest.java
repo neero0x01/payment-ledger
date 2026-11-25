@@ -64,6 +64,74 @@ class AdjustmentTest {
   }
 
   @Test
+  void adjustment_naming_the_transaction_it_corrects_is_linked_to_it() {
+    UUID funding = ledger.lastFundingOf(customer).value();
+
+    TransactionView adjustment =
+        postAdjustment(
+            """
+            {"kind": "ADJUSTMENT", "transactionId": "%s", "reason": "WRONG_AMOUNT",
+             "note": "Funded 2.00 too much", "accountId": "%s", "amountPence": 200,
+             "direction": "DEBIT"}
+            """
+                .formatted(funding, customer.value()));
+
+    assertThat(adjustment.correctsTransactionId()).isEqualTo(funding);
+    assertThat(transaction(adjustment.id()).correctsTransactionId()).isEqualTo(funding);
+    assertThat(transaction(funding).correctedByTransactionIds()).containsExactly(adjustment.id());
+  }
+
+  @Test
+  void transaction_lists_every_correction_of_it_reversing_corrections_and_adjustments() {
+    UUID funding = ledger.lastFundingOf(customer).value();
+    TransactionView first =
+        postAdjustment(
+            """
+            {"kind": "ADJUSTMENT", "transactionId": "%s", "reason": "WRONG_AMOUNT",
+             "note": "Funded 2.00 too much", "accountId": "%s", "amountPence": 200,
+             "direction": "DEBIT"}
+            """
+                .formatted(funding, customer.value()));
+    TransactionView reversing =
+        postAdjustment(
+            """
+            {"kind": "REVERSING", "transactionId": "%s", "reason": "DUPLICATE_POSTING",
+             "note": "Funded twice"}
+            """
+                .formatted(funding));
+
+    TransactionView corrected = transaction(funding);
+
+    assertThat(corrected.correctedByTransactionIds()).containsExactly(first.id(), reversing.id());
+    assertThat(corrected.correctsTransactionId()).isNull();
+    assertThat(reversing.correctsTransactionId()).isEqualTo(funding);
+  }
+
+  @Test
+  void adjustment_naming_an_unknown_transaction_is_refused_as_not_found() {
+    operator
+        .post()
+        .uri("/v1/corrections")
+        .header("Idempotency-Key", UUID.randomUUID().toString())
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(
+            """
+            {"kind": "ADJUSTMENT", "transactionId": "%s", "reason": "WRONG_AMOUNT",
+             "note": "Funded 2.00 too much", "accountId": "%s", "amountPence": 200,
+             "direction": "DEBIT"}
+            """
+                .formatted(UUID.randomUUID(), customer.value()))
+        .exchange()
+        .expectStatus()
+        .isNotFound()
+        .expectBody()
+        .jsonPath("$.type")
+        .isEqualTo("/problems/not-found");
+
+    assertThat(balancePenceOf(customer)).isEqualTo(20_00);
+  }
+
+  @Test
   void debit_adjustment_credits_the_corrections_account_and_debits_the_customer_account() {
     TransactionView adjustment =
         postAdjustment(
@@ -314,7 +382,9 @@ class AdjustmentTest {
       Instant bookingTime,
       @Nullable String correctionReason,
       @Nullable String correctionNote,
-      List<EntryView> entries) {}
+      List<EntryView> entries,
+      @Nullable UUID correctsTransactionId,
+      List<UUID> correctedByTransactionIds) {}
 
   record EntryView(UUID accountId, String side, long amountPence) {}
 

@@ -22,7 +22,10 @@ export type TransactionEntry = {
   balanceAfterPence: number;
 };
 
-/** A Transaction as the ledger recorded it, with the Reversal or Reversing Correction of it, if any. */
+/**
+ * A Transaction as the ledger recorded it: the Reversal or Reversing Correction of it, if any, every
+ * Correction of it, and the Transaction it corrects if it is a Correction that names one.
+ */
 export type Transaction = {
   id: string;
   kind: TransactionKind;
@@ -33,6 +36,8 @@ export type Transaction = {
   correctionNote: string | null;
   entries: TransactionEntry[];
   reversedByTransactionId: string | null;
+  correctsTransactionId: string | null;
+  correctedByTransactionIds: string[];
 };
 
 /** A Payment as the ledger has it now, with the Transactions it led to, oldest first. */

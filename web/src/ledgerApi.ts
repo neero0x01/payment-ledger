@@ -100,23 +100,31 @@ export async function makePayment(
 export class ProblemError extends Error {
   readonly type: string;
   readonly detail: string;
+  /** The request field the problem is about, by its path in the JSON body, if it names one. */
+  readonly field: string | undefined;
 
-  constructor(type: string, detail: string) {
+  constructor(type: string, detail: string, field?: string) {
     super(detail);
     this.name = "ProblemError";
     this.type = type;
     this.detail = detail;
+    this.field = field;
   }
 }
 
 export async function problemOf(response: Response): Promise<Error> {
   if (response.headers.get("Content-Type")?.includes("problem+json")) {
-    const problem: { type?: string; title?: string; detail?: string } =
-      await response.json();
+    const problem: {
+      type?: string;
+      title?: string;
+      detail?: string;
+      field?: string;
+    } = await response.json();
     if (problem.type) {
       return new ProblemError(
         problem.type,
         problem.detail ?? problem.title ?? problem.type,
+        problem.field,
       );
     }
   }

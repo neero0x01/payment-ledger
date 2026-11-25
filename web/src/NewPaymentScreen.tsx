@@ -23,7 +23,14 @@ import {
   paymentQuery,
   ProblemError,
 } from "./ledgerApi";
-import { EMPTY_FORM, type NewPaymentForm, validate } from "./newPaymentForm";
+import {
+  EMPTY_FORM,
+  type NewPaymentForm,
+  problemsFromLedger,
+  validate,
+} from "./newPaymentForm";
+import { PAYMENT_STATUS, rejectionReason } from "./paymentStatus";
+import { useSubmissionKey } from "./submissionKey";
 
 /** A Customer makes an Internal Transfer or a Faster Payment and watches its Payment Status. */
 export function NewPaymentScreen() {
@@ -35,10 +42,9 @@ export function NewPaymentScreen() {
   // Problems show once the Customer first tries to pay, then follow the form as it is fixed.
   const [triedToPay, setTriedToPay] = useState(false);
   const problems = triedToPay ? (validate(form).problems ?? {}) : {};
-  // One Idempotency-Key per submission of the form as it stands: a double-click, or paying again
-  // after a lost response, resends it and gets the same Payment back. Editing the form starts a new
-  // submission.
-  const idempotencyKey = useRef<string | null>(null);
+  // A double-click, or paying again after a lost response, resends the same Idempotency-Key and
+  // gets the same Payment back. Editing the form starts a new submission.
+  const submissionKey = useSubmissionKey();
   const sending = useRef(false);
   const payment = useMutation({
     mutationFn: ({
@@ -55,14 +61,24 @@ export function NewPaymentScreen() {
     },
   });
 
+  // A problem the ledger refused the Payment with shows beside the field it names, until the form
+  // is edited; one that names no field of the form shows above Pay.
+  const refusal =
+    payment.error instanceof ProblemError ? payment.error : undefined;
+  const ledgerProblems = refusal
+    ? problemsFromLedger(refusal.field, refusal.detail)
+    : {};
+  const refusalBesideField = Object.keys(ledgerProblems).length > 0;
+
   const field = (name: keyof NewPaymentForm) => ({
     value: form[name],
     onChange: (e: { target: { value: string } }) => {
-      idempotencyKey.current = null;
+      submissionKey.next();
+      if (payment.isError) payment.reset();
       setForm((prev) => ({ ...prev, [name]: e.target.value }));
     },
-    error: problems[name] !== undefined,
-    helperText: problems[name],
+    error: (problems[name] ?? ledgerProblems[name]) !== undefined,
+    helperText: problems[name] ?? ledgerProblems[name],
   });
 
   function submit(event: FormEvent) {
@@ -71,8 +87,7 @@ export function NewPaymentScreen() {
     const { request } = validate(form);
     if (!request || sending.current) return;
     sending.current = true;
-    idempotencyKey.current ??= crypto.randomUUID();
-    payment.mutate({ request, idempotencyKey: idempotencyKey.current });
+    payment.mutate({ request, idempotencyKey: submissionKey.current() });
   }
 
   const accountOptions = [
@@ -154,10 +169,10 @@ export function NewPaymentScreen() {
             {...field("amount")}
             slotProps={{ htmlInput: { inputMode: "decimal" } }}
           />
-          {payment.isError && (
+          {payment.isError && !refusalBesideField && (
             <Alert severity="error">
-              {payment.error instanceof ProblemError
-                ? `The ledger refused the Payment: ${payment.error.detail}`
+              {refusal
+                ? `The ledger refused the Payment: ${refusal.detail}`
                 : `The Payment failed: ${payment.error.message}. Paying again resends the same Payment.`}
             </Alert>
           )}
@@ -177,28 +192,12 @@ export function NewPaymentScreen() {
   );
 }
 
-const STATUS: Record<
-  Payment["status"],
-  { label: string; color: "warning" | "success" | "error" }
-> = {
-  PENDING: { label: "Pending", color: "warning" },
-  COMPLETED: { label: "Completed", color: "success" },
-  REJECTED: { label: "Rejected", color: "error" },
-};
-
-/** The Rejection Reason in the glossary's words, with the scheme's reason code if it gave one. */
-export function rejectionReason({
-  rejectionReason,
-  schemeReasonCode,
-}: Payment) {
-  if (rejectionReason === "INSUFFICIENT_FUNDS") return "Insufficient Funds";
-  if (rejectionReason === "SCHEME_REJECTED") {
-    return schemeReasonCode
-      ? `Scheme Rejected (${schemeReasonCode})`
-      : "Scheme Rejected";
-  }
-  return null;
-}
+const STATUS_COLOR: Record<Payment["status"], "warning" | "success" | "error"> =
+  {
+    PENDING: "warning",
+    COMPLETED: "success",
+    REJECTED: "error",
+  };
 
 /** The Payment's live Payment Status, polled until it is final. */
 function PaymentStatus({ paymentId }: { paymentId: string }) {
@@ -213,8 +212,8 @@ function PaymentStatus({ paymentId }: { paymentId: string }) {
         {payment.isSuccess && (
           <Stack direction="row" spacing={2} sx={{ alignItems: "center" }}>
             <Chip
-              label={STATUS[payment.data.status].label}
-              color={STATUS[payment.data.status].color}
+              label={PAYMENT_STATUS[payment.data.status]}
+              color={STATUS_COLOR[payment.data.status]}
             />
             {payment.data.status === "REJECTED" && (
               <Typography>{rejectionReason(payment.data)}</Typography>

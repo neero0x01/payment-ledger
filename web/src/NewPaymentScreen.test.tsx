@@ -262,6 +262,51 @@ test("an Internal Transfer to the payer's own Account or over £1,000,000.00 is 
   expect(idempotencyKeysSent(ledger)).toHaveLength(0);
 });
 
+test("a validation problem from the ledger that names a field is shown beside it", async () => {
+  installFakeLedger({ accounts, entries: funded({ [ACCOUNT_A.id]: 100_00 }) });
+  const ledgerFetch = globalThis.fetch;
+  vi.stubGlobal(
+    "fetch",
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "POST" && input.toString() === "/v1/payments") {
+        return new Response(
+          JSON.stringify({
+            type: "/problems/validation-failed",
+            title: "Validation failed",
+            status: 400,
+            detail: "The Payee's sort code is not one the scheme knows",
+            field: "payee.sortCode",
+          }),
+          {
+            status: 400,
+            headers: { "Content-Type": "application/problem+json" },
+          },
+        );
+      }
+      return ledgerFetch(input, init);
+    },
+  );
+  const user = userEvent.setup();
+  await openNewPayment(user);
+  await makeFasterPayment(user);
+
+  const sortCode = screen.getByLabelText("Sort code");
+  await waitFor(() =>
+    expect(sortCode).toHaveAccessibleDescription(
+      "The Payee's sort code is not one the scheme knows",
+    ),
+  );
+  expect(sortCode).toHaveAttribute("aria-invalid", "true");
+  const form = screen.getByRole("form", { name: "New Payment" });
+  expect(within(form).queryByRole("alert")).toBeNull();
+
+  await user.type(sortCode, "1");
+
+  expect(sortCode).not.toHaveAccessibleDescription(
+    "The Payee's sort code is not one the scheme knows",
+  );
+});
+
 test("a validation problem from the ledger is shown in the form", async () => {
   installFakeLedger({ accounts, entries: funded({ [ACCOUNT_A.id]: 100_00 }) });
   const ledgerFetch = globalThis.fetch;

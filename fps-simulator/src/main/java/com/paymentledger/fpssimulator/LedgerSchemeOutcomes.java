@@ -18,7 +18,7 @@ import tools.jackson.databind.json.JsonMapper;
  * hex, in the {@code Scheme-Signature} header (ADR 0008).
  */
 @Component
-class LedgerCallbacks {
+class LedgerSchemeOutcomes {
 
   static final String SIGNATURE_HEADER = "Scheme-Signature";
   private static final String HMAC = "HmacSHA256";
@@ -27,9 +27,9 @@ class LedgerCallbacks {
   private final JsonMapper json;
   private final SecretKeySpec key;
 
-  LedgerCallbacks(
+  LedgerSchemeOutcomes(
       @Value("${fpssim.ledger-base-url}") String ledgerBaseUrl,
-      @Value("${fpssim.callback-hmac-key}") String key,
+      @Value("${fpssim.scheme-outcome-hmac-key}") String key,
       JsonMapper json) {
     this.ledger = RestClient.create(ledgerBaseUrl);
     this.json = json;
@@ -59,7 +59,7 @@ class LedgerCallbacks {
     }
   }
 
-  /** The callback's JSON body: the End-to-End Id, ACSC or RJCT, and an RJCT's reason code. */
+  /** The Scheme Outcome's JSON body: the End-to-End Id, ACSC or RJCT, and an RJCT's reason code. */
   record Pacs002Lite(String endToEndId, String status, @Nullable String reasonCode) {
 
     static Pacs002Lite of(String endToEndId, SchemeOutcome outcome) {

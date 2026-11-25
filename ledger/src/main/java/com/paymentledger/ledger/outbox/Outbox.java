@@ -16,4 +16,7 @@ public interface Outbox {
 
   /** Up to the limit of the events appended last, newest first, published or not. */
   List<AppendedEvent> newest(int limit);
+
+  /** How far publishing trails the outbox now. */
+  OutboxLag lag();
 }

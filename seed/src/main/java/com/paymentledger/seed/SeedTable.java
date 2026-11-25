@@ -11,9 +11,9 @@ import java.util.Locale;
 enum SeedTable {
   CUSTOMER(
       """
-      copy customer (id, display_name, created_at) from stdin
+      copy customer (id, display_name, seeded, created_at) from stdin
       """,
-      3),
+      4),
   ACCOUNT(
       """
       copy account (

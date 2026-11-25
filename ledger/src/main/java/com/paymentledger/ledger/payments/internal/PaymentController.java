@@ -52,8 +52,11 @@ class PaymentController {
     IdempotencyKey key = IdempotencyKey.fromHeader(idempotencyKey);
     UUID debtorAccountId = request.debtorAccountId();
     PayeeBody payeeBody = request.payee();
-    if (debtorAccountId == null || payeeBody == null) {
-      throw Problem.validationFailed("A Payment needs a debtorAccountId and a payee");
+    if (debtorAccountId == null) {
+      throw Problem.validationFailed("debtorAccountId", "A Payment needs a debtorAccountId");
+    }
+    if (payeeBody == null) {
+      throw Problem.validationFailed("payee", "A Payment needs a payee");
     }
     AccountId debtor = new AccountId(debtorAccountId);
     Money amount = Money.ofPence(request.amountPence());
@@ -114,7 +117,7 @@ class PaymentController {
       }
       if (sortCode != null || accountNumber != null || name != null) {
         throw Problem.validationFailed(
-            "The Payee is either an accountId or a sort code, account number and name");
+            "payee", "The Payee is either an accountId or a sort code, account number and name");
       }
       return new Payee.AtTheFintech(new AccountId(accountId));
     }

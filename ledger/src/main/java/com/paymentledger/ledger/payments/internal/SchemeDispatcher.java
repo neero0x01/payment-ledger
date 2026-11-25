@@ -20,7 +20,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  * back, so a poll after the retry delay sends it again. A Payment with no Scheme Outcome within the
  * resend delay (15 s) is sent again with the same End-to-End Id, which the scheme dedupes on. One
  * still Pending after the Scheme Outcome deadline (5 min) is flagged as a Stuck Payment for an
- * Operator, and is never reversed automatically, because the money may already have left.
+ * Operator, and is never reversed automatically, because the money may already have left. A Stuck
+ * Payment is still sent with the same End-to-End Id, less often (every minute), so a scheme outage
+ * longer than the deadline still ends with the Payment's Scheme Outcome.
  */
 @Component
 class SchemeDispatcher {
@@ -36,18 +38,21 @@ class SchemeDispatcher {
   private final TransactionTemplate transaction;
   private final Duration resendAfter;
   private final Duration stuckAfter;
+  private final Duration stuckResendAfter;
 
   SchemeDispatcher(
       PaymentRepository payments,
       PaymentScheme scheme,
       TransactionTemplate transaction,
       @Value("${ledger.scheme.resend-after}") Duration resendAfter,
-      @Value("${ledger.scheme.stuck-after}") Duration stuckAfter) {
+      @Value("${ledger.scheme.stuck-after}") Duration stuckAfter,
+      @Value("${ledger.scheme.stuck-resend-after}") Duration stuckResendAfter) {
     this.payments = payments;
     this.scheme = scheme;
     this.transaction = transaction;
     this.resendAfter = resendAfter;
     this.stuckAfter = stuckAfter;
+    this.stuckResendAfter = stuckResendAfter;
   }
 
   @Scheduled(fixedDelayString = "${ledger.scheme.dispatch-interval-ms:200}")
@@ -64,7 +69,8 @@ class SchemeDispatcher {
     List<SchemeSubmission> claimed =
         Objects.requireNonNull(
             transaction.execute(status ->
-                payments.claimFasterPaymentsToSubmit(BATCH_SIZE, RETRY_DELAY, resendAfter)));
+                payments.claimFasterPaymentsToSubmit(
+                    BATCH_SIZE, RETRY_DELAY, resendAfter, stuckResendAfter)));
     for (SchemeSubmission submission : claimed) {
       try {
         scheme.submit(submission);

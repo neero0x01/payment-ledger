@@ -9,15 +9,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Talks to a running ledger over HTTP as an Operator, the way the web page does: it picks up the
- * CSRF token from its cookie, posts the credentials to {@code /v1/sessions}, and then sends the
- * session cookie on every request.
+ * Talks to a running ledger over HTTP as a logged-in Operator or Customer, the way the web page
+ * does: it picks up the CSRF token from its cookie, posts the credentials to {@code /v1/sessions},
+ * and then sends the session cookie on every request.
  */
-final class OperatorClient {
+final class SessionClient {
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
@@ -25,21 +26,16 @@ final class OperatorClient {
   private final CookieManager cookies = new CookieManager();
   private final HttpClient http;
 
-  private OperatorClient(URI base) {
+  private SessionClient(URI base) {
     this.base = base;
     this.http = HttpClient.newBuilder().cookieHandler(cookies).build();
   }
 
-  /** A client logged in to the ledger at the base URI with the Operator's credentials. */
-  static OperatorClient logIn(URI base, String username, String password) {
-    OperatorClient client = new OperatorClient(base);
+  /** A client logged in to the ledger at the base URI with the credentials. */
+  static SessionClient logIn(URI base, String username, String password) {
+    SessionClient client = new SessionClient(base);
     client.send(HttpRequest.newBuilder(base.resolve("/v1/session")).GET().build());
-    String csrf =
-        client.cookies.getCookieStore().get(base).stream()
-            .filter(cookie -> cookie.getName().equals("XSRF-TOKEN"))
-            .map(HttpCookie::getValue)
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("No XSRF-TOKEN cookie"));
+    String csrf = csrfToken(client.cookies, base);
     String form = "username=" + encode(username) + "&password=" + encode(password);
     HttpResponse<String> login =
         client.send(
@@ -62,6 +58,33 @@ final class OperatorClient {
           "GET " + path + " answered " + response.statusCode() + ": " + response.body());
     }
     return JSON.readTree(response.body());
+  }
+
+  /** A response's status and JSON body. */
+  record Response(int status, JsonNode body) {}
+
+  /**
+   * POSTs the JSON body to the path with a new Idempotency-Key and the CSRF token, and returns the
+   * status and JSON body, whatever the status.
+   */
+  Response post(String path, String json) {
+    HttpResponse<String> response =
+        send(
+            HttpRequest.newBuilder(base.resolve(path))
+                .header("Content-Type", "application/json")
+                .header("Idempotency-Key", UUID.randomUUID().toString())
+                .header("X-XSRF-TOKEN", csrfToken(cookies, base))
+                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .build());
+    return new Response(response.statusCode(), JSON.readTree(response.body()));
+  }
+
+  private static String csrfToken(CookieManager cookies, URI base) {
+    return cookies.getCookieStore().get(base).stream()
+        .filter(cookie -> cookie.getName().equals("XSRF-TOKEN"))
+        .map(HttpCookie::getValue)
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("No XSRF-TOKEN cookie"));
   }
 
   private HttpResponse<String> send(HttpRequest request) {

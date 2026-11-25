@@ -18,6 +18,8 @@ import java.util.Map;
 import java.util.UUID;
 import org.postgresql.PGConnection;
 import org.postgresql.copy.CopyManager;
+import org.springframework.security.crypto.factory.PasswordEncoderFactories;
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 /**
  * Bulk-loads seed data into an empty ledger database with COPY, in one database transaction, so a
@@ -26,6 +28,10 @@ import org.postgresql.copy.CopyManager;
  * also migrates as.
  */
 final class SeedLoader implements AutoCloseable {
+
+  /** Hashes as the ledger's logins do: bcrypt, with the algorithm named in the hash. */
+  private static final PasswordEncoder PASSWORDS =
+      PasswordEncoderFactories.createDelegatingPasswordEncoder();
 
   private final Connection connection;
 
@@ -84,6 +90,27 @@ final class SeedLoader implements AutoCloseable {
       }
     }
     return rows;
+  }
+
+  /**
+   * Lets each load-test Customer log in, as {@code load-test-NNN} for Load Test Customer NNN, with
+   * the password given, so the load test can make Payments from their load-test Accounts. Every
+   * login shares one bcrypt hash of the password, hashed once, because bcrypt is slow on purpose.
+   * Returns how many logins it added.
+   */
+  int addLoadTestLogins(String password) throws SQLException {
+    try (PreparedStatement statement =
+        connection.prepareStatement(
+            """
+            insert into login (username, password_hash, role, customer_id)
+            select 'load-test-' || substring(display_name from '^Load Test Customer ([0-9]+)$'),
+                   ?, 'CUSTOMER', id
+            from customer
+            where seeded and display_name ~ '^Load Test Customer [0-9]+$'
+            """)) {
+      statement.setString(1, PASSWORDS.encode(password));
+      return statement.executeUpdate();
+    }
   }
 
   /** Commits the load; the ledger's deferred checks run now. */

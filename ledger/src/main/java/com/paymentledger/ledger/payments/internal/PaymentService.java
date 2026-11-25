@@ -82,11 +82,12 @@ class PaymentService {
       CustomerId customer, IdempotencyKey key, AccountId debtor, AccountId payee, Money amount) {
     requireAllowedAmount(amount);
     if (debtor.equals(payee)) {
-      throw Problem.validationFailed("The Payee must be a different Account from the payer");
+      throw Problem.validationFailed(
+          "payee.accountId", "The Payee must be a different Account from the payer");
     }
     Account payer = payerOwnedBy(customer, debtor);
     if (accounts.find(payee).isEmpty()) {
-      throw Problem.notFound("No Account " + payee.value() + " exists to pay");
+      throw Problem.notFound("payee.accountId", "No Account " + payee.value() + " exists to pay");
     }
     KeyedPayment keyed =
         new KeyedPayment(
@@ -232,9 +233,9 @@ class PaymentService {
   }
 
   private static void requireAllowedAmount(Money amount) {
-    Problem.requirePositive(amount);
+    Problem.requirePositive(amount, "amountPence");
     if (amount.isGreaterThan(MAXIMUM_AMOUNT)) {
-      throw Problem.validationFailed("The amount must be at most £1,000,000.00");
+      throw Problem.validationFailed("amountPence", "The amount must be at most £1,000,000.00");
     }
   }
 
@@ -243,8 +244,9 @@ class PaymentService {
     Account payer =
         accounts
             .find(debtor)
-            .orElseThrow(
-                () -> Problem.notFound("No Account " + debtor.value() + " exists to pay from"));
+            .orElseThrow(() ->
+                Problem.notFound(
+                    "debtorAccountId", "No Account " + debtor.value() + " exists to pay from"));
     if (!payer.isOwnedBy(customer)) {
       throw Problem.forbidden("Account " + debtor.value() + " is not yours to pay from");
     }

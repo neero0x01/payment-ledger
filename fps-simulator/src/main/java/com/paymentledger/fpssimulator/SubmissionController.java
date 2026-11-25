@@ -9,7 +9,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /**
  * Takes Scheme Submissions from the ledger. Answers 202 at once; the Scheme Outcome follows later
- * as a callback to the ledger. A submission it can't read is refused as a 400 problem.
+ * as a Scheme Outcome sent to the ledger. A submission it can't read is refused as a 400 problem.
  */
 @RestController
 class SubmissionController {

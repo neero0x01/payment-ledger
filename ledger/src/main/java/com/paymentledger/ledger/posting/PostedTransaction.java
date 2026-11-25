@@ -19,6 +19,7 @@ public record PostedTransaction(
     @Nullable PaymentId originatingPayment,
     @Nullable TransactionId reversedTransaction,
     @Nullable CorrectionDetails correctionDetails,
+    @Nullable TransactionId adjustedTransaction,
     TransactionSource source,
     List<PostedEntry> postedEntries) {
 
@@ -39,6 +40,22 @@ public record PostedTransaction(
   /** The Transaction this one reverses, if it is a Reversing Correction. */
   public Optional<TransactionId> reverses() {
     return Optional.ofNullable(reversedTransaction);
+  }
+
+  /** The Transaction this one adjusts, if it is an Adjustment that names one. */
+  public Optional<TransactionId> adjusts() {
+    return Optional.ofNullable(adjustedTransaction);
+  }
+
+  /**
+   * The Transaction this Correction corrects: the one a Reversing Correction reverses, or the one
+   * an Adjustment names. Empty for a goodwill Adjustment and for any other kind of Transaction.
+   */
+  public Optional<TransactionId> corrects() {
+    if (kind != TransactionKind.CORRECTION) {
+      return Optional.empty();
+    }
+    return reverses().or(this::adjusts);
   }
 
   /** The Correction Reason and note, if this Transaction is a Correction. */

@@ -19,11 +19,16 @@ public record NewTransaction(
     @Nullable PaymentId originatingPayment,
     @Nullable TransactionId reversedTransaction,
     @Nullable CorrectionDetails correctionDetails,
+    @Nullable TransactionId adjustedTransaction,
     List<Entry> entries) {
 
   public NewTransaction {
     Objects.requireNonNull(kind, "kind");
     entries = List.copyOf(entries);
+    if (adjustedTransaction != null
+        && (kind != TransactionKind.CORRECTION || reversedTransaction != null)) {
+      throw new IllegalArgumentException("Only an Adjustment names the Transaction it adjusts");
+    }
     if (entries.size() < 2) {
       throw new IllegalArgumentException("A Transaction needs at least two Entries");
     }
@@ -36,12 +41,12 @@ public record NewTransaction(
   }
 
   public static NewTransaction funding(List<Entry> entries) {
-    return new NewTransaction(TransactionKind.FUNDING, null, null, null, entries);
+    return new NewTransaction(TransactionKind.FUNDING, null, null, null, null, entries);
   }
 
   public static NewTransaction forPayment(PaymentId payment, List<Entry> entries) {
     return new NewTransaction(
-        TransactionKind.PAYMENT, Objects.requireNonNull(payment), null, null, entries);
+        TransactionKind.PAYMENT, Objects.requireNonNull(payment), null, null, null, entries);
   }
 
   /**
@@ -59,6 +64,7 @@ public record NewTransaction(
         payment,
         original.id(),
         null,
+        null,
         original.entries().stream().map(Entry::mirrored).toList());
   }
 
@@ -73,25 +79,28 @@ public record NewTransaction(
         null,
         original.id(),
         Objects.requireNonNull(correction),
+        null,
         original.entries().stream().map(Entry::mirrored).toList());
   }
 
   /**
    * An Adjustment: the amount posted to the Customer Account on the given side, and to the
-   * Corrections Account on the other.
+   * Corrections Account on the other. It names the Transaction it corrects, or none for goodwill.
    */
   public static NewTransaction adjustment(
       AccountId customerAccount,
       Side customerSide,
       Money amount,
       AccountId correctionsAccount,
-      CorrectionDetails correction) {
+      CorrectionDetails correction,
+      Optional<TransactionId> corrects) {
     Entry customerEntry = new Entry(customerAccount, customerSide, amount);
     return new NewTransaction(
         TransactionKind.CORRECTION,
         null,
         null,
         Objects.requireNonNull(correction),
+        corrects.orElse(null),
         List.of(customerEntry.mirroredOnto(correctionsAccount), customerEntry));
   }
 
@@ -102,6 +111,11 @@ public record NewTransaction(
   /** The Transaction this one reverses, if it is a Reversing Correction. */
   public Optional<TransactionId> reverses() {
     return Optional.ofNullable(reversedTransaction);
+  }
+
+  /** The Transaction this one adjusts, if it is an Adjustment that names one. */
+  public Optional<TransactionId> adjusts() {
+    return Optional.ofNullable(adjustedTransaction);
   }
 
   /** The Correction Reason and note, if this Transaction is a Correction. */

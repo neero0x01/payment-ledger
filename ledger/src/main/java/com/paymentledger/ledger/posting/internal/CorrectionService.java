@@ -10,6 +10,7 @@ import com.paymentledger.ledger.posting.NewTransaction;
 import com.paymentledger.ledger.posting.PendingPayments;
 import com.paymentledger.ledger.posting.PostedTransaction;
 import com.paymentledger.ledger.posting.Posting;
+import com.paymentledger.ledger.posting.TransactionSource;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.IdempotencyKey;
 import com.paymentledger.ledger.shared.IdempotentOutcome;
@@ -20,8 +21,9 @@ import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -30,7 +32,9 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * Posts Corrections: new Transactions that fix mistakes without changing the originals. A
  * Correction the Operator already posted with the Idempotency-Key is replayed, and nothing new is
- * posted (ADR 0007).
+ * posted (ADR 0007). Seeded data is read-only for every Operator (spec §8): a Correction of a
+ * source=SEED Transaction, or one that would touch only seeded Customer Accounts, is refused as
+ * seed-data-read-only. The seed posts its own Corrections directly, never through here.
  */
 @Service
 class CorrectionService {
@@ -50,7 +54,9 @@ class CorrectionService {
 
   /**
    * Posts an Adjustment of the amount to the Customer Account on the given side, against the
-   * Corrections Account. Corrections skip the funds check.
+   * Corrections Account, linked to the Transaction it corrects if it names one. Corrections skip
+   * the funds check. Refuses to correct a Transaction whose Payment is still Pending as
+   * payment-pending.
    */
   @Transactional(isolation = Isolation.READ_COMMITTED)
   IdempotentOutcome<PostedTransaction> adjust(
@@ -59,7 +65,9 @@ class CorrectionService {
       AccountId customerAccount,
       Side side,
       Money amount,
-      CorrectionDetails correction) {
+      CorrectionDetails correction,
+      Optional<TransactionId> corrects) {
+    Optional<PostedTransaction> mistake = corrects.map(this::existing);
     Account account =
         accounts
             .find(customerAccount)
@@ -69,7 +77,12 @@ class CorrectionService {
       throw Problem.validationFailed(
           "An Adjustment moves money between a Customer Account and the Corrections Account");
     }
-    if (logins.isDemoOperator(operator) && !accounts.isInDemoSandbox(customerAccount)) {
+    if (accounts.areSeededOnly(Set.of(customerAccount))
+        || mistake.filter(CorrectionService::isSeeded).isPresent()) {
+      throw seedDataReadOnly();
+    }
+    if (logins.isDemoOperator(operator)
+        && !accounts.areInDemoSandboxesOnly(Set.of(customerAccount))) {
       throw outsideDemoSandboxes();
     }
     KeyedCorrection keyed =
@@ -81,15 +94,17 @@ class CorrectionService {
                 "ADJUSTMENT",
                 customerAccount.value().toString(),
                 side.name(),
-                Long.toString(amount.pence())));
+                Long.toString(amount.pence()),
+                corrects.map(id -> id.value().toString()).orElse("")));
     Optional<IdempotentOutcome<PostedTransaction>> replay = replay(keyed);
     if (replay.isPresent()) {
       return replay.get();
     }
+    mistake.ifPresent(this::refuseWhilePaymentPending);
     return posting
         .postCorrection(
             NewTransaction.adjustment(
-                customerAccount, side, amount, accounts.corrections(), correction),
+                customerAccount, side, amount, accounts.corrections(), correction, corrects),
             keyed)
         .map(this::find);
   }
@@ -106,11 +121,11 @@ class CorrectionService {
       IdempotencyKey key,
       TransactionId original,
       CorrectionDetails correction) {
-    PostedTransaction mistake =
-        posting
-            .find(original)
-            .orElseThrow(() -> Problem.notFound("No Transaction " + original.value() + " exists"));
-    if (logins.isDemoOperator(operator) && !isOnDemoSandboxAccountsOnly(mistake)) {
+    PostedTransaction mistake = existing(original);
+    if (isSeeded(mistake) || accounts.areSeededOnly(accountsOf(mistake))) {
+      throw seedDataReadOnly();
+    }
+    if (logins.isDemoOperator(operator) && !accounts.areInDemoSandboxesOnly(accountsOf(mistake))) {
       throw outsideDemoSandboxes();
     }
     KeyedCorrection keyed =
@@ -120,10 +135,7 @@ class CorrectionService {
     if (replay.isPresent()) {
       return replay.get();
     }
-    if (mistake.payment().filter(pendingPayments::isPending).isPresent()) {
-      throw Problem.paymentPending(
-          "Transaction " + original.value() + " belongs to a Payment that is still Pending");
-    }
+    refuseWhilePaymentPending(mistake);
     if (posting.isReversed(original)) {
       throw alreadyReversed(original);
     }
@@ -141,23 +153,34 @@ class CorrectionService {
     return posting.correctionPostedWith(keyed).map(id -> IdempotentOutcome.replay(find(id)));
   }
 
+  private PostedTransaction existing(TransactionId transaction) {
+    return posting
+        .find(transaction)
+        .orElseThrow(() -> Problem.notFound("No Transaction " + transaction.value() + " exists"));
+  }
+
+  /** A late Scheme Outcome could post a Reversal of it, refunding the Customer twice. */
+  private void refuseWhilePaymentPending(PostedTransaction mistake) {
+    if (mistake.payment().filter(pendingPayments::isPending).isPresent()) {
+      throw Problem.paymentPending(
+          "Transaction " + mistake.id().value() + " belongs to a Payment that is still Pending");
+    }
+  }
+
   private PostedTransaction find(TransactionId posted) {
     return posting.find(posted).orElseThrow();
   }
 
-  /**
-   * Whether the Transaction touches at least one Demo Sandbox Account and no Customer Account
-   * outside the Demo Sandboxes. Internal Accounts, such as Funding, don't count.
-   */
-  private boolean isOnDemoSandboxAccountsOnly(PostedTransaction transaction) {
-    List<AccountId> customerAccounts =
-        transaction.entries().stream()
-            .map(Entry::account)
-            .distinct()
-            .filter(account -> accounts.find(account).map(Account::isCustomerAccount).orElse(false))
-            .toList();
-    return !customerAccounts.isEmpty()
-        && customerAccounts.stream().allMatch(accounts::isInDemoSandbox);
+  private static boolean isSeeded(PostedTransaction transaction) {
+    return transaction.source() == TransactionSource.SEED;
+  }
+
+  private static Set<AccountId> accountsOf(PostedTransaction transaction) {
+    return transaction.entries().stream().map(Entry::account).collect(Collectors.toSet());
+  }
+
+  private static RuntimeException seedDataReadOnly() {
+    return Problem.seedDataReadOnly("Seeded data is read-only: no Correction may touch it");
   }
 
   private static RuntimeException outsideDemoSandboxes() {

@@ -12,9 +12,10 @@ import {
   Typography,
 } from "@mui/material";
 import { useMutation, useQueries, useQueryClient } from "@tanstack/react-query";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useState } from "react";
 import { accountQuery, ProblemError } from "./ledgerApi";
 import { parsePounds } from "./money";
+import { useSubmissionKey } from "./submissionKey";
 import {
   type CorrectionReason,
   type CorrectionRequest,
@@ -52,6 +53,8 @@ function refusal(error: Error): string {
         return "This Transaction has already been reversed, so it can't be reversed again.";
       case "/problems/payment-pending":
         return "This Transaction's Payment is still Pending. It can be corrected once the scheme has decided.";
+      case "/problems/seed-data-read-only":
+        return "This Transaction is seeded data, which is read-only. No Correction can touch it.";
       case "/problems/validation-failed":
         return error.detail;
     }
@@ -62,6 +65,18 @@ function refusal(error: Error): string {
 /** Posts a Correction of the Transaction: a Reversing Correction or an Adjustment. */
 export function CorrectionForm({ transaction }: { transaction: Transaction }) {
   const queryClient = useQueryClient();
+  /**
+   * Sending the form again as it stands, as a retry or a double-click, reuses the Idempotency-Key;
+   * editing it, or posting the Correction, starts a new submission.
+   */
+  const submissionKey = useSubmissionKey();
+  /** A setter that also starts a new submission, since the form has changed. */
+  function edited<T>(set: (value: T) => void) {
+    return (value: T) => {
+      submissionKey.next();
+      set(value);
+    };
+  }
   const [kind, setKind] = useState<Kind>("REVERSING");
   const [reason, setReason] = useState<CorrectionReason | "">("");
   const [note, setNote] = useState("");
@@ -71,12 +86,6 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
   const [amount, setAmount] = useState("");
   const [amountInvalid, setAmountInvalid] = useState(false);
   const [direction, setDirection] = useState<Side>("CREDIT");
-  /**
-   * The submission not yet known to be posted, with its Idempotency-Key. Sending the same request
-   * again, as a retry or a double-click, reuses the key; a changed request or a posted one starts a
-   * new submission.
-   */
-  const submission = useRef<{ request: string; key: string } | null>(null);
   const correction = useMutation({
     mutationFn: ({
       request,
@@ -87,7 +96,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
     }) => postCorrection(request, idempotencyKey),
     onSuccess: () => {
       // The submission is done: the next Correction is filled in afresh and gets a new key.
-      submission.current = null;
+      submissionKey.next();
       setReason("");
       setNote("");
       setAmount("");
@@ -115,11 +124,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
         direction,
       };
     }
-    const body = JSON.stringify(request);
-    if (submission.current?.request !== body) {
-      submission.current = { request: body, key: crypto.randomUUID() };
-    }
-    correction.mutate({ request, idempotencyKey: submission.current.key });
+    correction.mutate({ request, idempotencyKey: submissionKey.current() });
   }
 
   return (
@@ -134,7 +139,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
             row
             aria-labelledby="correction-kind"
             value={kind}
-            onChange={(e) => setKind(e.target.value as Kind)}
+            onChange={(e) => edited(setKind)(e.target.value as Kind)}
           >
             <FormControlLabel
               value="REVERSING"
@@ -156,7 +161,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
               id="adjustment-account"
               label="Customer Account"
               value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
+              onChange={(e) => edited(setAccountId)(e.target.value)}
               slotProps={{
                 select: { native: true },
                 inputLabel: { shrink: true },
@@ -173,7 +178,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
               id="adjustment-amount"
               label="Amount (£)"
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              onChange={(e) => edited(setAmount)(e.target.value)}
               error={amountInvalid}
               helperText={
                 amountInvalid
@@ -188,7 +193,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
               id="adjustment-direction"
               label="Direction"
               value={direction}
-              onChange={(e) => setDirection(e.target.value as Side)}
+              onChange={(e) => edited(setDirection)(e.target.value as Side)}
               slotProps={{
                 select: { native: true },
                 inputLabel: { shrink: true },
@@ -205,7 +210,9 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
           id="correction-reason"
           label="Correction Reason"
           value={reason}
-          onChange={(e) => setReason(e.target.value as CorrectionReason)}
+          onChange={(e) =>
+            edited(setReason)(e.target.value as CorrectionReason)
+          }
           slotProps={{ select: { native: true }, inputLabel: { shrink: true } }}
         >
           <option value="" disabled>
@@ -223,7 +230,7 @@ export function CorrectionForm({ transaction }: { transaction: Transaction }) {
           id="correction-note"
           label="Note"
           value={note}
-          onChange={(e) => setNote(e.target.value)}
+          onChange={(e) => edited(setNote)(e.target.value)}
         />
         {correction.isSuccess && (
           <Alert severity="success">
