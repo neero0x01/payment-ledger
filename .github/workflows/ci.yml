@@ -25,6 +25,10 @@ jobs:
           cache: maven
       - name: Build, check and test
         run: ./mvnw -B -ntp verify
+      - name: Compile and format-check the load test
+        # The load test is outside the root build (loadtest/pom.xml); this keeps it compiling
+        # and formatted without running it.
+        run: ./mvnw -B -ntp -f loadtest test-compile spotless:check
 
   web:
     name: Type check, lint and test (web)

@@ -93,7 +93,21 @@ The default seed has 5,200 Customers in all: the 5,000 that `--customers` sets, 
 
 All seed data is synthetic. Customer names come from Datafaker with a fixed seed. **Every sort code in seed data is in the range 00-00-00 to 00-99-99, which this project treats as fictional**: the fintech's Customer Accounts are at 00-01-00, and Payees of seeded Faster Payments at the rest of the range. They stand in for real UK sort codes and must never be used to make a real payment.
 
-Tests: `./mvnw verify` for the ledger (Docker must be running, for Testcontainers) and `npm test` in `web/` for the page. The Playwright smoke test (log in, pay, see Completed) runs against the stack in Compose: start it as above, with `LEDGER_PROFILES=local`, then `npx playwright install chromium` once and `npm run smoke` in `web/` (`SMOKE_BASE_URL` points it elsewhere than http://localhost:5173).
+### Load test
+
+The Gatling simulations in `loadtest/` (spec §12) make Payments as the 200 load-test Customers, so they need a seeded ledger with load-test logins (above). `MainMixSimulation` runs the main mix: 70% Internal Transfers between random load-test Accounts, 15% Faster Payments, 5% retries with a reused Idempotency-Key, 5% Payments Rejected for Insufficient Funds and 5% Balance and Statement reads. `HotAccountSimulation` runs 100% Faster Payments, which all credit FPS Clearing, to measure contention on its balance row (ADR 0004). Before the traffic starts, each simulation logs every load-test Customer in once and reuses the sessions. It also brings load-test Accounts 191 to 200 just under £1,000,000.00, the most one Payment may be. Only Insufficient Funds Payments are made from those Accounts, and nothing pays into them.
+
+```sh
+LOADTEST_PASSWORD='the-seed-load-test-password' ./mvnw -f loadtest gatling:test \
+  -Dgatling.simulationClass=com.paymentledger.loadtest.MainMixSimulation \
+  -DbaseUrl=http://localhost:8080 -DpaymentsPerSecond=250 -DrampUpSeconds=60 -DholdSeconds=600
+```
+
+The defaults are `http://localhost:8080`, 50 payments a second, a 30 s ramp and a 60 s hold. A run fails its Gatling assertions unless every `POST /v1/payments` request has p99 under 200 ms and under 0.1% of requests fail. The report is written to `loadtest/target/gatling/`. The third pass mark, outbox lag under 1 s, is on the Grafana dashboard (`ledger_outbox_oldest_age_seconds`). **N** is the highest rate that passes all three for a 10-minute hold, measured from the load generator in eu-west-2, never from a laptop.
+
+### Tests
+
+`./mvnw verify` runs the ledger's tests (Docker must be running, for Testcontainers) and `npm test` in `web/` runs the page's. The Playwright smoke test (log in, pay, see Completed) runs against the stack in Compose: start it as above, with `LEDGER_PROFILES=local`, then `npx playwright install chromium` once and `npm run smoke` in `web/` (`SMOKE_BASE_URL` points it elsewhere than http://localhost:5173).
 
 ## Docs
 
