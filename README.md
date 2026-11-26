@@ -18,7 +18,7 @@ A double-entry payment ledger for a fictional small UK fintech, built in Java/Sp
 |---|---|
 | Live demo | _not deployed yet_ |
 | Load test (N payments/s, p99) | _not run yet_ |
-| Grafana dashboard | _not published yet_ |
+| Grafana dashboard | [Payment Ledger on Grafana Cloud](https://serenecorridor1126.grafana.net/public-dashboards/9e2f7ac9659f46dc91a7703e887363c0) |
 
 ## Run it locally
 
@@ -73,7 +73,7 @@ GRAFANA_CLOUD_OTLP_ENDPOINT=…   GRAFANA_CLOUD_OTLP_USER=…
 GRAFANA_CLOUD_TOKEN=…           # an access policy token with metrics, logs and traces write
 ```
 
-Without them Alloy still runs but ships nothing. Its UI at http://localhost:12345 shows each pipeline's health. The dashboard is `infra/grafana/payment-ledger.json`; import it into the stack.
+Without them Alloy still runs but ships nothing. Its UI at http://localhost:12345 shows each pipeline's health. The dashboard is `infra/grafana/payment-ledger.json`; import it into the stack. The published one is linked under Status.
 
 ### Seed data
 
