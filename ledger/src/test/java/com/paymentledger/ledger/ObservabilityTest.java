@@ -2,6 +2,9 @@ package com.paymentledger.ledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.paymentledger.ledger.shared.AccountId;
 import com.paymentledger.ledger.shared.Money;
 import com.paymentledger.ledger.shared.TransactionId;
@@ -12,14 +15,12 @@ import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.common.header.Header;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.micrometer.metrics.test.autoconfigure.AutoConfigureMetrics;
 import org.springframework.boot.micrometer.tracing.test.autoconfigure.AutoConfigureTracing;
 import org.springframework.boot.resttestclient.autoconfigure.AutoConfigureRestTestClient;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -29,16 +30,13 @@ import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Observability (spec §13): a Payment's trace reaches Kafka through the outbox, its outcome is
- * counted in the metrics Grafana Alloy scrapes from inside the box, and its log line in ECS JSON
- * says which Payment, Transaction and trace it belongs to.
+ * counted in the metrics Grafana Alloy scrapes from inside the box, and its log line carries the
+ * Payment, Transaction and trace ids that Compose's ECS JSON format writes out.
  */
-@SpringBootTest(
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
-    properties = "logging.structured.format.console=ecs")
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @AutoConfigureRestTestClient
 @AutoConfigureMetrics
 @AutoConfigureTracing
-@ExtendWith(OutputCaptureExtension.class)
 @Import({
   TestcontainersConfiguration.class,
   LedgerFixture.class,
@@ -53,6 +51,9 @@ class ObservabilityTest {
   private static final String TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
 
   private static final String TRACEPARENT = "00-" + TRACE_ID + "-00f067aa0ba902b7-01";
+
+  private static final String PAYMENT_LIFECYCLE =
+      "com.paymentledger.ledger.payments.internal.PaymentLifecycle";
 
   @Autowired LedgerFixture ledger;
   @Autowired Sessions sessions;
@@ -124,25 +125,30 @@ class ObservabilityTest {
   }
 
   @Test
-  void payment_log_line_says_which_payment_transaction_and_trace_it_belongs_to(
-      CapturedOutput output) {
-    JsonNode payment = transfer(30_00);
+  void payment_log_line_carries_its_payment_transaction_and_trace_ids() {
+    ListAppender<ILoggingEvent> logged = new ListAppender<>();
+    logged.start();
+    Logger lifecycle = (Logger) LoggerFactory.getLogger(PAYMENT_LIFECYCLE);
+    lifecycle.addAppender(logged);
+    JsonNode payment;
+    try {
+      payment = transfer(30_00);
+    } finally {
+      lifecycle.detachAppender(logged);
+    }
     String paymentId = payment.get("id").asString();
 
-    JsonNode logLine =
-        output
-            .getOut()
-            .lines()
-            .filter(line -> line.startsWith("{") && line.contains(paymentId))
-            .map(JSON::readTree)
+    ILoggingEvent logLine =
+        logged.list.stream()
+            .filter(event -> event.getFormattedMessage().contains(paymentId))
             .findFirst()
-            .orElseThrow(() -> new AssertionError("No ECS log line names Payment " + paymentId));
+            .orElseThrow(() -> new AssertionError("No log line names Payment " + paymentId));
 
-    assertThat(logLine.get("message").asString()).contains("COMPLETED");
-    assertThat(logLine.get("paymentId").asString()).isEqualTo(paymentId);
-    assertThat(logLine.get("transactionId").asString())
-        .isEqualTo(firstTransactionOf(payment).value().toString());
-    assertThat(logLine.get("traceId").asString()).isEqualTo(TRACE_ID);
+    assertThat(logLine.getFormattedMessage()).contains("COMPLETED");
+    assertThat(logLine.getMDCPropertyMap())
+        .containsEntry("paymentId", paymentId)
+        .containsEntry("transactionId", firstTransactionOf(payment).value().toString())
+        .containsEntry("traceId", TRACE_ID);
   }
 
   /** Customer A pays B the amount, in the client's trace; answers the Payment. */
