@@ -1,11 +1,14 @@
 package com.paymentledger.ledger.outbox.internal;
 
+import io.micrometer.tracing.Span;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.jspecify.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -21,7 +24,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  * waiting for any row still locked rather than skipping it, sends them in order with the idempotent
  * producer and acks=all, and marks them published once Kafka has acknowledged every one. If any
  * send fails nothing is marked, and the whole batch is sent again on a later poll: delivery is at
- * least once, and consumers dedupe on eventId.
+ * least once, and consumers dedupe on eventId. A row appended in a trace is sent in a producer span
+ * under it, carrying the trace to the consumer (OutboxTracing).
  */
 @Component
 class OutboxPublisher {
@@ -37,12 +41,17 @@ class OutboxPublisher {
   private final JdbcClient jdbc;
   private final KafkaTemplate<String, String> kafka;
   private final TransactionTemplate transaction;
+  private final OutboxTracing tracing;
 
   OutboxPublisher(
-      JdbcClient jdbc, KafkaTemplate<String, String> kafka, TransactionTemplate transaction) {
+      JdbcClient jdbc,
+      KafkaTemplate<String, String> kafka,
+      TransactionTemplate transaction,
+      OutboxTracing tracing) {
     this.jdbc = jdbc;
     this.kafka = kafka;
     this.transaction = transaction;
+    this.tracing = tracing;
   }
 
   @Scheduled(fixedDelay = 200)
@@ -63,11 +72,26 @@ class OutboxPublisher {
       return;
     }
     CompletableFuture<?>[] sends =
-        pending.stream()
-            .map(event -> kafka.send(event.topic(), event.key(), event.payload()))
-            .toArray(CompletableFuture<?>[]::new);
+        pending.stream().map(this::send).toArray(CompletableFuture<?>[]::new);
     awaitAcknowledgement(CompletableFuture.allOf(sends));
     markPublished(pending.stream().map(PendingEvent::id).toList());
+  }
+
+  /** Sends the row, in a producer span under the trace that appended it, if any. */
+  private CompletableFuture<?> send(PendingEvent event) {
+    ProducerRecord<String, String> record =
+        new ProducerRecord<>(event.topic(), event.key(), event.payload());
+    @Nullable Span span = tracing.startSend(event.traceparent(), record);
+    CompletableFuture<?> sent = kafka.send(record);
+    if (span == null) {
+      return sent;
+    }
+    return sent.whenComplete((result, failure) -> {
+      if (failure != null) {
+        span.error(failure);
+      }
+      span.end();
+    });
   }
 
   /**
@@ -84,7 +108,7 @@ class OutboxPublisher {
   private List<PendingEvent> lockUnpublished() {
     return jdbc.sql(
             """
-            select id, topic, msg_key, payload::text as payload
+            select id, topic, msg_key, payload::text as payload, traceparent
             from outbox
             where published_at is null
             order by id
@@ -96,7 +120,8 @@ class OutboxPublisher {
                 rs.getLong("id"),
                 rs.getString("topic"),
                 rs.getString("msg_key"),
-                rs.getString("payload")))
+                rs.getString("payload"),
+                rs.getString("traceparent")))
         .list();
   }
 
@@ -118,5 +143,6 @@ class OutboxPublisher {
   }
 
   /** An unpublished outbox row, locked until the publishing database transaction ends. */
-  private record PendingEvent(long id, String topic, String key, String payload) {}
+  private record PendingEvent(
+      long id, String topic, String key, String payload, @Nullable String traceparent) {}
 }

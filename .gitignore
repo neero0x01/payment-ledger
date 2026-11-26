@@ -10,3 +10,6 @@ target/
 # Playwright smoke test output
 playwright-report/
 test-results/
+
+# Local secrets (Grafana Cloud credentials and friends)
+.env

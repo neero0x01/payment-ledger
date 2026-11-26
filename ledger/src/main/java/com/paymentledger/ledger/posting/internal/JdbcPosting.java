@@ -21,6 +21,8 @@ import com.paymentledger.ledger.shared.Problem;
 import com.paymentledger.ledger.shared.RequestHash;
 import com.paymentledger.ledger.shared.Side;
 import com.paymentledger.ledger.shared.TransactionId;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -35,11 +37,14 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import org.jspecify.annotations.Nullable;
+import org.slf4j.MDC;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 class JdbcPosting implements Posting {
@@ -55,14 +60,23 @@ class JdbcPosting implements Posting {
                 : Long.compareUnsigned(x.getLeastSignificantBits(), y.getLeastSignificantBits());
           });
 
+  private static final String TRANSACTION_ID = "transactionId";
+
   private final JdbcClient jdbc;
   private final Accounts accounts;
   private final Outbox outbox;
 
-  JdbcPosting(JdbcClient jdbc, Accounts accounts, Outbox outbox) {
+  /** How long taking a Transaction's balance locks waits, behind other Transactions (spec §13). */
+  private final Timer lockWait;
+
+  JdbcPosting(JdbcClient jdbc, Accounts accounts, Outbox outbox, MeterRegistry meters) {
     this.jdbc = jdbc;
     this.accounts = accounts;
     this.outbox = outbox;
+    this.lockWait =
+        Timer.builder("ledger.balance.lock.wait")
+            .description("How long taking balance row locks waits")
+            .register(meters);
   }
 
   /**
@@ -164,6 +178,7 @@ class JdbcPosting implements Posting {
       return Optional.empty();
     }
     TransactionId transactionId = inserted.get().id();
+    putInLogContextUntilTransactionEnds(transactionId);
     List<PostedEntry> posted = new ArrayList<>();
     for (Entry entry : transaction.entries()) {
       BalanceRow after = applyToBalance(entry);
@@ -176,6 +191,21 @@ class JdbcPosting implements Posting {
     return Optional.of(transactionId);
   }
 
+  /**
+   * Puts the Transaction's id in the log context (spec §13) until the database transaction ends, so
+   * whatever is logged about it until then, and once it commits, says which Transaction it was.
+   */
+  private static void putInLogContextUntilTransactionEnds(TransactionId transactionId) {
+    MDC.put(TRANSACTION_ID, transactionId.value().toString());
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCompletion(int status) {
+            MDC.remove(TRANSACTION_ID);
+          }
+        });
+  }
+
   /** A Transaction row just inserted, with the Booking Time the database gave it. */
   private record InsertedTransaction(TransactionId id, Instant bookingTime) {}
 
@@ -183,9 +213,10 @@ class JdbcPosting implements Posting {
   @Transactional(propagation = Propagation.MANDATORY)
   public Map<AccountId, Money> lockBalances(Set<AccountId> accounts) {
     Map<AccountId, Money> balances = new LinkedHashMap<>();
-    accounts.stream()
-        .sorted(IN_DATABASE_ORDER)
-        .forEach(account -> balances.put(account, lockBalance(account)));
+    lockWait.record(() ->
+        accounts.stream()
+            .sorted(IN_DATABASE_ORDER)
+            .forEach(account -> balances.put(account, lockBalance(account))));
     return balances;
   }
 

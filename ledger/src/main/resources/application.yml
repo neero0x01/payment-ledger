@@ -50,8 +50,30 @@ management:
   endpoints:
     web:
       exposure:
-        # Operators read the outbox lag and other gauges here (WebSecurity).
-        include: health, metrics
+        # Operators read the outbox lag and other gauges at /actuator/metrics; Grafana Alloy scrapes
+        # /actuator/prometheus from inside the box (WebSecurity).
+        include: health, metrics, prometheus
+  metrics:
+    distribution:
+      # Histograms get these buckets only, to stay under Grafana Cloud's 10k series (spec §13).
+      slo:
+        "[http.server.requests]": 10ms, 25ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s
+        "[ledger.balance.lock.wait]": 1ms, 5ms, 10ms, 25ms, 50ms, 100ms, 250ms, 1s
+  otlp:
+    metrics:
+      export:
+        # Metrics are scraped, not pushed.
+        enabled: false
+  observations:
+    enable:
+      # A trace per poll of every scheduled job, and a span per security filter of every request,
+      # would bury the Payment traces.
+      "[tasks.scheduled]": false
+      "[spring.security]": false
+  tracing:
+    sampling:
+      # Every Payment gets its trace. Compose sets the OTLP endpoint traces are exported to.
+      probability: 1.0
 ledger:
   demo:
     # How many Demo Sandboxes the public demo creates a day across every visitor (spec §8).

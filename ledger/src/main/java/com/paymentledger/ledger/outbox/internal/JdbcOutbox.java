@@ -5,6 +5,7 @@ import com.paymentledger.ledger.outbox.EventId;
 import com.paymentledger.ledger.outbox.Outbox;
 import com.paymentledger.ledger.outbox.OutboxEvent;
 import com.paymentledger.ledger.outbox.OutboxLag;
+import java.sql.Types;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -20,10 +21,12 @@ class JdbcOutbox implements Outbox {
 
   private final JdbcClient jdbc;
   private final JsonMapper json;
+  private final OutboxTracing tracing;
 
-  JdbcOutbox(JdbcClient jdbc, JsonMapper json) {
+  JdbcOutbox(JdbcClient jdbc, JsonMapper json, OutboxTracing tracing) {
     this.jdbc = jdbc;
     this.json = json;
+    this.tracing = tracing;
   }
 
   @Override
@@ -39,13 +42,14 @@ class JdbcOutbox implements Outbox {
             event.payload());
     jdbc.sql(
             """
-            insert into outbox (event_id, topic, msg_key, payload)
-            values (:eventId, :topic, :key, cast(:payload as jsonb))
+            insert into outbox (event_id, topic, msg_key, payload, traceparent)
+            values (:eventId, :topic, :key, cast(:payload as jsonb), :traceparent)
             """)
         .param("eventId", eventId.value())
         .param("topic", event.topic())
         .param("key", event.key())
         .param("payload", json.writeValueAsString(envelope))
+        .param("traceparent", tracing.currentTraceparent(), Types.VARCHAR)
         .update();
   }
 
