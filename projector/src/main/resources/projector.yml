@@ -18,6 +18,19 @@ spring:
         # The ledger creates its topics with their partitions and retention; subscribing must never
         # create one with the broker's defaults.
         allow.auto.create.topics: false
+    listener:
+      # Continues the trace the ledger put on the record (spec §13; ProjectorTracing).
+      observation-enabled: true
+management:
+  otlp:
+    metrics:
+      export:
+        # The projector exports no metrics; Grafana Alloy reads its consumer lag from Kafka.
+        enabled: false
+  tracing:
+    sampling:
+      # Every traced event is followed. Compose sets the OTLP endpoint traces are exported to.
+      probability: 1.0
 logging:
   level:
     # The Kafka clients log their whole configuration at INFO whenever one starts.

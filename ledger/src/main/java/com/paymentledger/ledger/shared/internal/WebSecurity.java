@@ -8,15 +8,21 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.util.List;
+import java.util.stream.Stream;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
+import org.springframework.security.authorization.AuthorizationDecision;
+import org.springframework.security.authorization.AuthorizationManager;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.RequestAuthorizationContext;
 import org.springframework.security.web.csrf.CsrfFilter;
 import org.springframework.security.web.csrf.CsrfToken;
+import org.springframework.security.web.util.matcher.IpAddressMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.servlet.HandlerExceptionResolver;
 
@@ -51,6 +57,9 @@ class WebSecurity {
                 .hasRole(Role.OPERATOR.name())
                 .requestMatchers(HttpMethod.GET, "/actuator/health")
                 .permitAll()
+                // Grafana Alloy scrapes metrics from inside the box (spec §13), with no session.
+                .requestMatchers(HttpMethod.GET, "/actuator/prometheus")
+                .access(fromInsideTheBox())
                 // The API docs are public (spec §7).
                 .requestMatchers(HttpMethod.GET, "/docs", "/swagger-ui/**", "/v3/api-docs/**")
                 .permitAll()
@@ -87,6 +96,21 @@ class WebSecurity {
         .requestCache(AbstractHttpConfigurer::disable)
         .logout(AbstractHttpConfigurer::disable);
     return http.build();
+  }
+
+  /**
+   * Allows requests from private and loopback addresses only. A request through Caddy has the
+   * visitor's address, from the X-Forwarded-For header Caddy sets
+   * (server.forward-headers-strategy), so only a caller on the box's own network is let in.
+   */
+  private static AuthorizationManager<RequestAuthorizationContext> fromInsideTheBox() {
+    List<IpAddressMatcher> inside =
+        Stream.of("127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            .map(IpAddressMatcher::new)
+            .toList();
+    return (authentication, context) ->
+        new AuthorizationDecision(
+            inside.stream().anyMatch(range -> range.matches(context.getRequest())));
   }
 
   private static void loadCsrfToken(HttpServletRequest request) {

@@ -28,7 +28,7 @@ You need Docker. From the repository root:
 LEDGER_PROFILES=local docker compose --profile web up --build
 ```
 
-This builds the services from source and starts the whole system: Postgres 18, Kafka, the ledger on http://localhost:8080, the projector, the FPS simulator, Caddy on http://localhost (in front of the ledger), Grafana Alloy, and the bare transfer page on http://localhost:5173. Each container runs under its share of the memory budget (spec §11). `LEDGER_PROFILES=local` runs the ledger with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Log in as `local-customer` (password `local-customer`), make an Internal Transfer and both Balances update. Without `LEDGER_PROFILES` the ledger runs with no profile, as it does when deployed, and opens no Accounts of its own. `docker compose down -v` stops everything and deletes the data. Host ports are set by `POSTGRES_PORT`, `LEDGER_PORT`, `FPSSIM_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT` and `WEB_PORT` if the defaults are taken.
+This builds the services from source and starts the whole system: Postgres 18, Kafka, the ledger on http://localhost:8080, the projector, the FPS simulator, Caddy on http://localhost (in front of the ledger), Grafana Alloy, and the bare transfer page on http://localhost:5173. Each container runs under its share of the memory budget (spec §11). `LEDGER_PROFILES=local` runs the ledger with its `local` profile, which opens two Customer Accounts the page knows by id: Account A, funded with £100.00, and Account B, empty. Log in as `local-customer` (password `local-customer`), make an Internal Transfer and both Balances update. Without `LEDGER_PROFILES` the ledger runs with no profile, as it does when deployed, and opens no Accounts of its own. `docker compose down -v` stops everything and deletes the data. Host ports are set by `POSTGRES_PORT`, `LEDGER_PORT`, `FPSSIM_PORT`, `CADDY_HTTP_PORT`, `CADDY_HTTPS_PORT`, `WEB_PORT` and `ALLOY_PORT` if the defaults are taken.
 
 Without `--build`, Compose runs the images published to GHCR (`IMAGE_TAG` picks one; default `latest`). On every push to main, CI builds arm64 images of the ledger, projector and simulator with Jib and pushes them tagged `latest` and with the commit SHA. To build them into your local Docker instead:
 
@@ -59,6 +59,21 @@ curl -X PUT localhost:8081/admin/settings -H 'Content-Type: application/json' \
 ```
 
 The same settings start from the `FPSSIM_ACCEPT_RATE`, `FPSSIM_BLACK_HOLE_RATE`, `FPSSIM_LATENCY_P50_MS` and `FPSSIM_LATENCY_P99_MS` environment variables.
+
+### Observability
+
+Grafana Alloy ships metrics, traces and logs to Grafana Cloud (spec §13). It scrapes the ledger's `/actuator/prometheus` (only from inside the box: Caddy and the ledger both refuse it from outside), reads the projector's consumer lag from Kafka, receives the ledger's and the projector's OTLP traces, and tails every container's ECS JSON logs. One trace covers a Payment from its HTTP request through the outbox and Kafka to the projector, and each Payment's log line carries its `paymentId`, `transactionId` and `traceId`.
+
+To ship from your machine, put the Grafana Cloud credentials in `.env` at the repository root (git-ignored):
+
+```sh
+GRAFANA_CLOUD_PROM_URL=…        GRAFANA_CLOUD_PROM_USER=…
+GRAFANA_CLOUD_LOKI_URL=…        GRAFANA_CLOUD_LOKI_USER=…
+GRAFANA_CLOUD_OTLP_ENDPOINT=…   GRAFANA_CLOUD_OTLP_USER=…
+GRAFANA_CLOUD_TOKEN=…           # an access policy token with metrics, logs and traces write
+```
+
+Without them Alloy still runs but ships nothing. Its UI at http://localhost:12345 shows each pipeline's health. The dashboard is `infra/grafana/payment-ledger.json`; import it into the stack.
 
 ### Seed data
 

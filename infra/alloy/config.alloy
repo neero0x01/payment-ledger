@@ -1,6 +1,144 @@
 // Grafana Alloy on the box: the agent that ships metrics, traces and logs to Grafana Cloud
-// (spec §13). Its pipelines are added here with the Grafana Cloud credentials.
+// (spec §13). The Grafana Cloud endpoints, user ids and token come from the environment (.env).
+// Without them, as in CI, Alloy still starts and collects, but ships to an address that refuses
+// every connection, and logs each failed send.
 logging {
 	level  = "info"
 	format = "logfmt"
+}
+
+// ---- Metrics ----------------------------------------------------------------------------------
+
+// The ledger's Micrometer meters. Histograms have only the buckets application.yml gives them.
+prometheus.scrape "ledger" {
+	targets         = [{"__address__" = "ledger:8080", "service" = "ledger"}]
+	metrics_path    = "/actuator/prometheus"
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// Kafka consumer lag, as the broker sees it: how far the projector's group trails each partition.
+// Read from Kafka, not the projector, so it still rises when the projector is down.
+prometheus.exporter.kafka "kafka" {
+	kafka_uris          = ["kafka:9092"]
+	groups_filter_regex = "^projector$"
+	topics_filter_regex = "^(ledger|payments)\\..*"
+}
+
+prometheus.scrape "kafka" {
+	targets         = prometheus.exporter.kafka.kafka.targets
+	scrape_interval = "15s"
+	forward_to      = [prometheus.relabel.kafka_lag_only.receiver]
+}
+
+// The exporter also reports broker and topic metrics; only the consumer lag is shipped.
+prometheus.relabel "kafka_lag_only" {
+	rule {
+		source_labels = ["__name__"]
+		regex         = "kafka_consumergroup_lag(_sum)?"
+		action        = "keep"
+	}
+	forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+	endpoint {
+		url = coalesce(sys.env("GRAFANA_CLOUD_PROM_URL"), "http://localhost:1")
+
+		basic_auth {
+			username = coalesce(sys.env("GRAFANA_CLOUD_PROM_USER"), "unset")
+			password = coalesce(sys.env("GRAFANA_CLOUD_TOKEN"), "unset")
+		}
+	}
+}
+
+// ---- Traces -----------------------------------------------------------------------------------
+
+// The ledger and the projector export their spans here over OTLP/HTTP.
+otelcol.receiver.otlp "services" {
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		traces = [otelcol.processor.batch.traces.input]
+	}
+}
+
+otelcol.processor.batch "traces" {
+	output {
+		traces = [otelcol.exporter.otlphttp.grafana_cloud.input]
+	}
+}
+
+otelcol.auth.basic "grafana_cloud" {
+	username = coalesce(sys.env("GRAFANA_CLOUD_OTLP_USER"), "unset")
+	password = coalesce(sys.env("GRAFANA_CLOUD_TOKEN"), "unset")
+}
+
+otelcol.exporter.otlphttp "grafana_cloud" {
+	client {
+		endpoint = coalesce(sys.env("GRAFANA_CLOUD_OTLP_ENDPOINT"), "http://localhost:1")
+		auth     = otelcol.auth.basic.grafana_cloud.handler
+	}
+}
+
+// ---- Logs -------------------------------------------------------------------------------------
+
+// Every Compose container's output, labelled with its Compose service.
+discovery.docker "containers" {
+	host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "compose_services" {
+	targets = discovery.docker.containers.targets
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		regex         = ".+"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+		target_label  = "service"
+	}
+}
+
+loki.source.docker "containers" {
+	host       = "unix:///var/run/docker.sock"
+	targets    = discovery.relabel.compose_services.output
+	forward_to = [loki.process.ecs.receiver]
+}
+
+// The Java services log ECS JSON. Its level becomes a label; the trace id becomes structured
+// metadata, so a log line links to its trace. Other containers' lines pass through unchanged.
+loki.process "ecs" {
+	stage.json {
+		expressions = {
+			level    = "\"log.level\"",
+			trace_id = "traceId",
+		}
+	}
+
+	stage.labels {
+		values = {level = ""}
+	}
+
+	stage.structured_metadata {
+		values = {trace_id = ""}
+	}
+
+	forward_to = [loki.write.grafana_cloud.receiver]
+}
+
+loki.write "grafana_cloud" {
+	endpoint {
+		url = coalesce(sys.env("GRAFANA_CLOUD_LOKI_URL"), "http://localhost:1")
+
+		basic_auth {
+			username = coalesce(sys.env("GRAFANA_CLOUD_LOKI_USER"), "unset")
+			password = coalesce(sys.env("GRAFANA_CLOUD_TOKEN"), "unset")
+		}
+	}
 }

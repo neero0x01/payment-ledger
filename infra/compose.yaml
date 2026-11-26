@@ -13,6 +13,15 @@ x-java-memory: &java-memory
   # The heap gets half the container's limit; the rest is metaspace, code cache and thread stacks.
   JAVA_TOOL_OPTIONS: -XX:MaxRAMPercentage=50 -XX:+ExitOnOutOfMemoryError
 
+x-ecs-logs: &ecs-logs
+  # ECS JSON on stdout, which Alloy ships to Grafana Cloud with traceId, paymentId and
+  # transactionId (spec §13).
+  LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+
+x-traces: &traces
+  # Spans go to Alloy over OTLP/HTTP, and on to Grafana Cloud (spec §13).
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://alloy:4318/v1/traces
+
 services:
   postgres:
     image: postgres:18
@@ -80,7 +89,7 @@ services:
       context: ..
       dockerfile: ledger/Dockerfile
     environment:
-      <<: *java-memory
+      <<: [*java-memory, *ecs-logs, *traces]
       # No profile unless LEDGER_PROFILES names one, so a deploy never opens the local Accounts by
       # accident. LEDGER_PROFILES=local opens two funded Customer Accounts with a known login, for
       # running the stack on a laptop and for the smoke test.
@@ -115,7 +124,7 @@ services:
       context: ..
       dockerfile: projector/Dockerfile
     environment:
-      <<: *java-memory
+      <<: [*java-memory, *ecs-logs, *traces]
       PROJECTOR_DB_URL: jdbc:postgresql://postgres:5432/readmodel
       PROJECTOR_DB_USER: ledger
       PROJECTOR_DB_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
@@ -138,7 +147,7 @@ services:
       context: ..
       dockerfile: fps-simulator/Dockerfile
     environment:
-      <<: *java-memory
+      <<: [*java-memory, *ecs-logs]
       FPSSIM_DB_URL: jdbc:postgresql://postgres:5432/fpssim
       FPSSIM_DB_USER: ledger
       FPSSIM_DB_PASSWORD: ${POSTGRES_PASSWORD:-ledger}
@@ -179,16 +188,31 @@ services:
           memory: 30m
 
   alloy:
-    # Grafana Alloy, the agent that ships metrics, traces and logs to Grafana Cloud (spec §13).
+    # Grafana Alloy, the agent that ships metrics, traces and logs to Grafana Cloud (spec §13). It
+    # scrapes the ledger, reads the projector's consumer lag from Kafka, receives OTLP traces and
+    # tails every container's logs through the Docker socket. Its UI is on
+    # http://localhost:12345. The Grafana Cloud credentials are the GRAFANA_CLOUD_* variables in
+    # the repository root's .env; without it Alloy runs but ships nothing.
     image: grafana/alloy:v1.22.0
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
       - --storage.path=/var/lib/alloy/data
       - /etc/alloy/config.alloy
+    env_file:
+      - path: ../.env
+        required: false
+    ports:
+      - "127.0.0.1:${ALLOY_PORT:-12345}:12345"
     volumes:
       - ./alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy/data
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    # The Kafka lag exporter stops Alloy at startup if it can't reach the broker.
+    restart: on-failure
+    depends_on:
+      kafka:
+        condition: service_healthy
     deploy:
       resources:
         limits:

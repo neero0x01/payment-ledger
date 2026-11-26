@@ -32,6 +32,11 @@
       <artifactId>spring-boot-starter-jackson</artifactId>
     </dependency>
     <dependency>
+      <!-- OpenTelemetry tracing, exported over OTLP to Grafana Alloy (spec §13). -->
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-opentelemetry</artifactId>
+    </dependency>
+    <dependency>
       <groupId>org.flywaydb</groupId>
       <artifactId>flyway-database-postgresql</artifactId>
     </dependency>
